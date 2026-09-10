@@ -80,28 +80,72 @@ pub struct Contacto {
 
 /// Junta las líneas partidas de una tarjeta.
 ///
-/// El formato corta a 75 octetos y sigue en la siguiente con un espacio o una
-/// tabulación adelante. Sin volver a juntarlas, un nombre largo aparece cortado
-/// y una foto en base64 —que ocupa cientos de líneas— se interpreta como cientos
-/// de propiedades basura.
+/// **Hay dos formas de partir una línea y no se parecen en nada.**
+///
+/// La normal, de la 3.0 y la 4.0: se corta a 75 octetos y la siguiente empieza
+/// con un espacio o una tabulación. Sin volver a juntarlas, un nombre largo
+/// aparece cortado y una foto en base64 —que ocupa cientos de líneas— se
+/// interpreta como cientos de propiedades basura.
+///
+/// La otra es de la 2.1, y sólo dentro de un valor en `quoted-printable`: la
+/// línea termina en `=` y la siguiente **no lleva nada adelante**. Sin
+/// reconocerla, la línea que sigue no tiene dos puntos y se descarta entera, y
+/// el valor queda cortado con un signo de igual pegado al final — que es
+/// exactamente el síntoma que leer la 2.1 viene a evitar.
+///
+/// Por eso este juntador tiene que saber de `quoted-printable`: no es
+/// acoplamiento de más, es cómo está definido el formato. Y por eso el `=` no
+/// junta líneas por sí solo — el base64 de una foto termina en `=` y se comería
+/// la propiedad siguiente.
 pub fn unir_lineas(texto: &str) -> Vec<String> {
     let mut lineas: Vec<String> = Vec::new();
+    let mut sigue_imprimible = false;
 
     for cruda in texto.split('\n') {
         let linea = cruda.strip_suffix('\r').unwrap_or(cruda);
-        match linea.strip_prefix([' ', '\t']) {
-            Some(continuacion) => {
-                if let Some(ultima) = lineas.last_mut() {
-                    ultima.push_str(continuacion);
-                    continue;
-                }
-                lineas.push(continuacion.to_string());
+
+        // Continuación de la 2.1: se le saca el `=` que anunciaba que seguía y
+        // se pega lo que vino, sin mirar con qué empieza.
+        if sigue_imprimible {
+            if let Some(ultima) = lineas.last_mut() {
+                ultima.pop();
+                ultima.push_str(linea);
+                sigue_imprimible = quedo_a_medias(ultima);
+                continue;
             }
+        }
+
+        match linea.strip_prefix([' ', '\t']) {
+            Some(continuacion) => match lineas.last_mut() {
+                Some(ultima) => ultima.push_str(continuacion),
+                None => lineas.push(continuacion.to_string()),
+            },
             None => lineas.push(linea.to_string()),
         }
+
+        sigue_imprimible = lineas.last().is_some_and(|l| quedo_a_medias(l));
     }
 
     lineas
+}
+
+/// Si una línea es un `quoted-printable` que sigue en la siguiente.
+///
+/// Las dos condiciones juntas: que el valor esté en `quoted-printable` **y** que
+/// termine en `=`. Con una sola no alcanza — el base64 de una foto termina en
+/// `=` y no sigue, y un valor en `quoted-printable` que termina donde termina
+/// tampoco.
+fn quedo_a_medias(linea: &str) -> bool {
+    if !linea.ends_with('=') {
+        return false;
+    }
+    let Some((izquierda, _)) = linea.split_once(':') else {
+        return false;
+    };
+    izquierda
+        .to_ascii_lowercase()
+        .replace(' ', "")
+        .contains("encoding=quoted-printable")
 }
 
 /// Una propiedad ya separada en sus partes.
@@ -504,6 +548,48 @@ mod tests {
     #[test]
     fn el_caracter_que_pliega_no_deja_espacio() {
         assert_eq!(unir_lineas("FN:Ana\r\n\tPérez")[0], "FN:AnaPérez");
+    }
+
+    /// **La otra forma de partir una línea, la de la 2.1.** El valor termina en
+    /// `=` y la línea siguiente no lleva nada adelante. Sin reconocerla, esa
+    /// línea no tiene dos puntos y se descarta entera: el nombre queda cortado
+    /// con un signo de igual pegado, que es justo el síntoma que leer la 2.1
+    /// viene a evitar.
+    #[test]
+    fn una_continuacion_de_quoted_printable_se_junta() {
+        // El corte cae en el medio de una palabra, que es donde cae de verdad:
+        // el formato parte a los 75 octetos sin mirar qué hay ahí. Y el `=` no
+        // deja nada en su lugar — un espacio lo pondría donde no estaba.
+        let vieja = "BEGIN:VCARD\r\nVERSION:2.1\r\n\
+            FN;ENCODING=QUOTED-PRINTABLE:Ana Mar=C3=ADa P=C3=A9r=\r\nez\r\nEND:VCARD";
+
+        let c = contacto_de(vieja, "").unwrap();
+        assert_eq!(c.nombre, "Ana María Pérez");
+        assert!(!c.nombre.contains('='), "quedó el signo de igual: {}", c.nombre);
+    }
+
+    /// Y con varias continuaciones seguidas, que es lo que pasa con un valor de
+    /// verdad largo.
+    #[test]
+    fn varias_continuaciones_seguidas_tambien() {
+        let vieja = "NOTE;ENCODING=QUOTED-PRINTABLE:uno=\r\ndos=\r\ntres\r\nFN:Ana";
+        let lineas = unir_lineas(vieja);
+
+        assert_eq!(lineas[0], "NOTE;ENCODING=QUOTED-PRINTABLE:unodostres");
+        // Y la propiedad siguiente no se la comió.
+        assert_eq!(lineas[1], "FN:Ana");
+    }
+
+    /// **El `=` solo no junta nada.** El base64 de una foto termina en `=` y no
+    /// sigue: juntar por el signo se comería la propiedad de abajo, que es peor
+    /// que el problema que se quería arreglar.
+    #[test]
+    fn un_base64_que_termina_en_igual_no_se_come_lo_que_sigue() {
+        let con_foto = "PHOTO;ENCODING=b:iVBORw0KGgo=\r\nFN:Ana\r\n";
+        let lineas = unir_lineas(con_foto);
+
+        assert_eq!(lineas[0], "PHOTO;ENCODING=b:iVBORw0KGgo=");
+        assert_eq!(lineas[1], "FN:Ana");
     }
 
     /// El valor puede tener dos puntos —una URL— así que el corte va por el
