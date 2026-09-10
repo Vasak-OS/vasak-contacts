@@ -68,11 +68,15 @@ function etiqueta(dato: Dato): string {
       </header>
 
       <div class="flex flex-col gap-4 p-4">
+        <!-- La clave lleva la posición y la etiqueta, no sólo el valor: un
+             contacto puede tener el mismo número anotado como «casa» y como
+             «celular», y con claves repetidas Vue reusa la fila equivocada al
+             actualizar. -->
         <section v-if="contacto.correos.length > 0" class="flex flex-col gap-1">
           <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contacto.correos') }}</h2>
           <div
-            v-for="correo in contacto.correos"
-            :key="correo.valor"
+            v-for="(correo, i) in contacto.correos"
+            :key="`${i}-${correo.tipo}-${correo.valor}`"
             class="flex items-center gap-2">
             <span class="min-w-0 flex-1 truncate text-sm">
               <span class="text-tx-muted text-xs">{{ etiqueta(correo) }}</span>{{ correo.valor }}
@@ -97,8 +101,8 @@ function etiqueta(dato: Dato): string {
             {{ t('contacto.telefonos') }}
           </h2>
           <div
-            v-for="telefono in contacto.telefonos"
-            :key="telefono.valor"
+            v-for="(telefono, i) in contacto.telefonos"
+            :key="`${i}-${telefono.tipo}-${telefono.valor}`"
             class="flex items-center gap-2">
             <span class="min-w-0 flex-1 truncate text-sm">
               <span class="text-tx-muted text-xs">{{ etiqueta(telefono) }}</span

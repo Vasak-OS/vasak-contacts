@@ -49,12 +49,17 @@ pub struct Libreta {
 // ---------------------------------------------------------------------------
 
 /// Lee las libretas de una respuesta `PROPFIND`.
-pub fn libretas_de(xml: &str, base: &str) -> Vec<Libreta> {
-    let Ok(documento) = roxmltree::Document::parse(xml) else {
-        return Vec::new();
-    };
+///
+/// **Un XML que no se entiende no es una libreta vacía.** Devolver una lista
+/// vacía hacía que una respuesta cortada a la mitad —una conexión que se
+/// interrumpió, un servidor que contestó una página de error— se viera igual
+/// que «esta cuenta no tiene libretas». La persona miraría la pantalla vacía
+/// creyendo que perdió sus contactos.
+pub fn libretas_de(xml: &str, base: &str) -> Result<Vec<Libreta>, String> {
+    let documento = roxmltree::Document::parse(xml)
+        .map_err(|e| format!("el servidor contestó algo que no se entiende: {e}"))?;
 
-    documento
+    Ok(documento
         .descendants()
         .filter(|n| n.has_tag_name((NS_DAV, "response")))
         .filter_map(|respuesta| {
@@ -90,7 +95,7 @@ pub fn libretas_de(xml: &str, base: &str) -> Vec<Libreta> {
                 nombre: if nombre.is_empty() { "Contactos".into() } else { nombre },
             })
         })
-        .collect()
+        .collect())
 }
 
 /// Saca las tarjetas y su dirección de una respuesta `REPORT`.
@@ -98,12 +103,11 @@ pub fn libretas_de(xml: &str, base: &str) -> Vec<Libreta> {
 /// La dirección va con la tarjeta porque es lo que la identifica en el
 /// servidor: el `UID` de adentro lo escribe quien la creó y puede faltar, estar
 /// repetido, o ser el mismo en dos libretas distintas.
-pub fn tarjetas_de(xml: &str, base: &str) -> Vec<(String, String)> {
-    let Ok(documento) = roxmltree::Document::parse(xml) else {
-        return Vec::new();
-    };
+pub fn tarjetas_de(xml: &str, base: &str) -> Result<Vec<(String, String)>, String> {
+    let documento = roxmltree::Document::parse(xml)
+        .map_err(|e| format!("el servidor contestó algo que no se entiende: {e}"))?;
 
-    documento
+    Ok(documento
         .descendants()
         .filter(|n| n.has_tag_name((NS_DAV, "response")))
         .filter_map(|respuesta| {
@@ -126,7 +130,7 @@ pub fn tarjetas_de(xml: &str, base: &str) -> Vec<(String, String)> {
 
             Some((url, datos.to_string()))
         })
-        .collect()
+        .collect())
 }
 
 /// El cuerpo del `PROPFIND` que pide las libretas.
@@ -220,7 +224,7 @@ pub async fn libretas(credencial: &crate::cuentas::Credencial) -> Result<Vec<Lib
         .map_err(|e| format!("no se pudo consultar {}: {e}", credencial.home))?;
 
     let xml = cuerpo_con_tope(respuesta).await?;
-    Ok(libretas_de(&xml, &credencial.home))
+    libretas_de(&xml, &credencial.home)
 }
 
 /// Todos los contactos de una libreta.
@@ -245,7 +249,7 @@ pub async fn contactos(
 
     let xml = cuerpo_con_tope(respuesta).await?;
 
-    Ok(tarjetas_de(&xml, libreta)
+    Ok(tarjetas_de(&xml, libreta)?
         .into_iter()
         // Una respuesta puede traer varias tarjetas en el mismo bloque: hay
         // libretas exportadas que son un solo archivo con miles.
@@ -284,7 +288,8 @@ mod tests {
     /// entradas que al abrirlas no tienen nada.
     #[test]
     fn solo_se_listan_las_colecciones_que_son_libretas() {
-        let libretas = libretas_de(LIBRETAS, "https://nube.ejemplo.com/dav/addressbooks/users/ana/");
+        let libretas =
+            libretas_de(LIBRETAS, "https://nube.ejemplo.com/dav/addressbooks/users/ana/").unwrap();
 
         assert_eq!(libretas.len(), 1);
         assert_eq!(libretas[0].nombre, "Personal");
@@ -302,7 +307,8 @@ mod tests {
             "<d:href>/dav/addressbooks/users/ana/personal/</d:href>",
             "<d:href>https://otra.ejemplo.com/x/</d:href>",
         );
-        let libretas = libretas_de(&xml, "https://nube.ejemplo.com/dav/addressbooks/users/ana/");
+        let libretas =
+            libretas_de(&xml, "https://nube.ejemplo.com/dav/addressbooks/users/ana/").unwrap();
         assert_eq!(libretas[0].url, "https://otra.ejemplo.com/x/");
     }
 
@@ -311,7 +317,7 @@ mod tests {
     #[test]
     fn una_libreta_sin_nombre_se_muestra_igual() {
         let xml = LIBRETAS.replace("<d:displayname>Personal</d:displayname>", "");
-        assert_eq!(libretas_de(&xml, "https://x/").len(), 1);
+        assert_eq!(libretas_de(&xml, "https://x/").unwrap().len(), 1);
     }
 
     const TARJETAS: &str = r#"<?xml version="1.0"?>
@@ -333,18 +339,34 @@ END:VCARD
     /// estar repetido, o ser el mismo en dos libretas distintas.
     #[test]
     fn la_tarjeta_sale_con_su_direccion() {
-        let tarjetas = tarjetas_de(TARJETAS, "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/");
+        let tarjetas =
+            tarjetas_de(TARJETAS, "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/")
+                .unwrap();
 
         assert_eq!(tarjetas.len(), 1);
         assert!(tarjetas[0].0.ends_with("/ana.vcf"), "{}", tarjetas[0].0);
         assert!(tarjetas[0].1.contains("Ana Pérez"));
     }
 
+    /// **Un XML roto no es una libreta vacía.** Devolver una lista vacía hacía
+    /// que una respuesta cortada a la mitad se viera igual que «esta cuenta no
+    /// tiene a nadie», y la persona miraría la pantalla creyendo que perdió sus
+    /// contactos.
     #[test]
-    fn un_xml_roto_no_da_nada() {
-        assert!(libretas_de("no es xml", "https://x/").is_empty());
-        assert!(tarjetas_de("<abierto>", "https://x/").is_empty());
-        assert!(libretas_de("", "https://x/").is_empty());
+    fn un_xml_roto_se_dice_en_vez_de_parecer_vacio() {
+        for basura in ["no es xml", "<abierto>", ""] {
+            assert!(libretas_de(basura, "https://x/").is_err(), "{basura:?}");
+            assert!(tarjetas_de(basura, "https://x/").is_err(), "{basura:?}");
+        }
+    }
+
+    /// Y un XML válido sin nada adentro **sí** es una libreta vacía: la
+    /// diferencia es justamente la que se quería poder decir.
+    #[test]
+    fn un_xml_valido_y_vacio_si_es_una_libreta_vacia() {
+        let vacio = r#"<?xml version="1.0"?><d:multistatus xmlns:d="DAV:"/>"#;
+        assert!(libretas_de(vacio, "https://x/").unwrap().is_empty());
+        assert!(tarjetas_de(vacio, "https://x/").unwrap().is_empty());
     }
 
     #[test]

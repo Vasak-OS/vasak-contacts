@@ -86,16 +86,27 @@ export function buscados(contactos: Contacto[], consulta: string): Contacto[] {
 				contacto.nombre,
 				contacto.organizacion,
 				...contacto.correos.map((c) => c.valor),
-				// Los teléfonos, sin lo que los separa: nadie busca «11-5555»
-				// escribiendo el guión en el mismo lugar.
-				...contacto.telefonos.map((t) => t.valor.replace(/[\s\-().+]/g, '')),
+				// Los teléfonos, **sólo sus dígitos**: nadie busca «11-5555»
+				// escribiendo el guión en el mismo lugar, y los separadores que
+				// usa la gente no son una lista corta — enumerar el guión, el
+				// punto y el paréntesis dejaba afuera «11/5555-1234».
+				...contacto.telefonos.map((t) => t.valor.replace(/\D/g, '')),
 			].join(' ')
 		);
 
-		const numeros = palabras.map((p) => p.replace(/[\s\-().+]/g, ''));
-		return palabras.every(
-			(palabra, i) => dondeBuscar.includes(palabra) || dondeBuscar.includes(numeros[i])
-		);
+		return palabras.every((palabra) => {
+			if (dondeBuscar.includes(palabra)) {
+				return true;
+			}
+			// Y si la palabra tiene dígitos, también por sus dígitos solos: así
+			// «(11) 5555-1234» encuentra un número guardado como «11/5555 1234».
+			//
+			// **Sólo si quedan dígitos.** Una palabra sin ninguno queda en la
+			// cadena vacía, y todo texto la contiene: sin este control, buscar
+			// «nadie» devolvía la agenda entera.
+			const soloDigitos = palabra.replace(/\D/g, '');
+			return soloDigitos.length > 0 && dondeBuscar.includes(soloDigitos);
+		});
 	});
 }
 

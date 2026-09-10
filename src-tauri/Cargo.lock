@@ -4775,6 +4775,7 @@ name = "vasak-contacts"
 version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
+ "encoding_rs",
  "gtk",
  "reqwest 0.12.28",
  "roxmltree",

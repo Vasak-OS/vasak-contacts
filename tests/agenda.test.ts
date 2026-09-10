@@ -157,3 +157,31 @@ describe('inicialDe', () => {
 		expect(inicialDe(contacto('x', { orden: '日本' }))).toBe('#');
 	});
 });
+
+describe('buscados, con separadores raros', () => {
+	test('un teléfono se encuentra escriba como escriba los separadores', () => {
+		// Enumerar el guión, el punto y el paréntesis dejaba afuera «11/5555»,
+		// y la lista de lo que la gente usa para separar no es corta.
+		const agenda = [
+			contacto('Ana', {
+				telefonos: [{ tipo: 'cell', valor: '11/5555-1234' }],
+			}),
+		];
+
+		expect(buscados(agenda, '1155551234')).toHaveLength(1);
+		expect(buscados(agenda, '5555 1234')).toHaveLength(1);
+		expect(buscados(agenda, '(11) 5555.1234')).toHaveLength(1);
+	});
+});
+
+describe('buscados, el caso que rompió todo una vez', () => {
+	test('una palabra sin dígitos no coincide con cualquier cosa', () => {
+		// Comparar «los dígitos de la palabra» contra el contacto parece
+		// inofensivo hasta que la palabra no tiene ninguno: queda la cadena
+		// vacía, todo texto la contiene, y buscar «nadie» devuelve la agenda
+		// entera. Se ve como un buscador que no filtra.
+		const agenda = [contacto('Ana'), contacto('Juan')];
+		expect(buscados(agenda, 'nadie')).toHaveLength(0);
+		expect(buscados(agenda, 'zzz')).toHaveLength(0);
+	});
+});

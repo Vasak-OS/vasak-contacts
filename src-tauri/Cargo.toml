@@ -41,6 +41,11 @@ tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] 
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 roxmltree = "0.21"
 base64 = "0.22"
+# Los juegos de caracteres de las tarjetas viejas. Una vCard 2.1 declara el suyo
+# —windows-1252, iso-8859-1, shift_jis— y hay que respetarlo. Es Rust puro, el
+# mismo motor de codificaciones de Firefox, así que no suma ninguna biblioteca
+# compartida al paquete.
+encoding_rs = "0.8"
 
 [dev-dependencies]
 # Sólo para el test que valida los catálogos de idioma: el plugin los parsea en

@@ -316,11 +316,25 @@ pub fn imprimible_de(texto: &str) -> Vec<u8> {
     salida
 }
 
-/// Pasa un valor a texto según lo que declare la propiedad.
+/// El juego de caracteres que declaró la propiedad, si declaró alguno.
+fn juego_de(propiedad: &Propiedad) -> Option<&str> {
+    propiedad.parametros.iter().find_map(|p| {
+        let (nombre, valor) = p.split_once('=')?;
+        nombre
+            .trim()
+            .eq_ignore_ascii_case("charset")
+            .then(|| valor.trim().trim_matches('"'))
+    })
+}
+
+/// Deshace la codificación de transporte y el juego de caracteres, **y nada
+/// más**.
 ///
-/// Sólo hace falta para la 2.1, que es la que manda `quoted-printable` y juegos
-/// de caracteres distintos de UTF-8. En la 3.0 y la 4.0 el valor ya es texto.
-pub fn valor_legible(propiedad: &Propiedad) -> String {
+/// Separado del desescape a propósito. Un valor con varias partes —`N`, `ADR`,
+/// `ORG`— se parte por los puntos y coma **después** de decodificar y **antes**
+/// de desescapar: al revés, un `N;ENCODING=QUOTED-PRINTABLE:P=E9rez;Ana;;;`
+/// mostraba «P=E9rez» y ordenaba la agenda por eso.
+pub fn decodificado(propiedad: &Propiedad) -> String {
     let tiene = |que: &str| {
         propiedad
             .parametros
@@ -328,19 +342,57 @@ pub fn valor_legible(propiedad: &Propiedad) -> String {
             .any(|p| p.to_ascii_lowercase().replace(' ', "") == que)
     };
 
-    if !tiene("encoding=quoted-printable") && !tiene("quoted-printable") {
-        return texto_de(&propiedad.valor);
+    let declarado = juego_de(propiedad);
+    let imprimible = tiene("encoding=quoted-printable") || tiene("quoted-printable");
+
+    // Sin nada declarado y sin codificar, el valor ya es texto: es el caso de
+    // la 3.0 y la 4.0, que es casi todo.
+    if !imprimible && declarado.is_none() {
+        return propiedad.valor.clone();
     }
 
-    let bytes = imprimible_de(&propiedad.valor);
-    // El juego declarado, y si no se conoce, UTF-8 con respaldo en latin-1: es
-    // lo que manda una agenda exportada hace quince años, y sin el respaldo cada
-    // acento sale como un rombo.
-    let texto = match std::str::from_utf8(&bytes) {
-        Ok(t) => t.to_string(),
-        Err(_) => bytes.iter().map(|b| char::from(*b)).collect(),
+    let bytes = if imprimible {
+        imprimible_de(&propiedad.valor)
+    } else {
+        // Ya vino como texto, pero declarando otro juego: los bytes originales
+        // se recuperan del texto tal como llegó.
+        propiedad.valor.as_bytes().to_vec()
     };
-    texto_de(&texto)
+
+    a_texto(&bytes, declarado)
+}
+
+/// Pasa bytes a texto según el juego que declaró la tarjeta.
+///
+/// **Se respeta lo declarado.** Una 2.1 puede decir `CHARSET=WINDOWS-1252`, y
+/// suponer latin-1 ahí convierte las comillas tipográficas y el guión largo en
+/// caracteres de control invisibles.
+///
+/// Sin juego declarado, o con uno que no se conoce: se prueba UTF-8 y se cae a
+/// Windows-1252, que es lo que manda una agenda exportada hace quince años. Sin
+/// ese respaldo, cada acento sale como un rombo.
+pub fn a_texto(bytes: &[u8], juego: Option<&str>) -> String {
+    let declarada = juego.and_then(|j| encoding_rs::Encoding::for_label(j.trim().as_bytes()));
+
+    let codificacion = match declarada {
+        // `us-ascii` con bytes que no son ASCII no es us-ascii: el estándar de
+        // codificaciones lo trata como Windows-1252, que decodifica cualquier
+        // byte sin dar error, así que un valor en UTF-8 mal declarado saldría
+        // con «Ã³» y nada lo notaría.
+        Some(c) if c == encoding_rs::WINDOWS_1252 && std::str::from_utf8(bytes).is_ok() => {
+            encoding_rs::UTF_8
+        }
+        Some(c) => c,
+        None if std::str::from_utf8(bytes).is_ok() => encoding_rs::UTF_8,
+        None => encoding_rs::WINDOWS_1252,
+    };
+
+    codificacion.decode(bytes).0.into_owned()
+}
+
+/// El valor de una propiedad, listo para mostrar.
+pub fn valor_legible(propiedad: &Propiedad) -> String {
+    texto_de(&decodificado(propiedad))
 }
 
 // ---------------------------------------------------------------------------
@@ -369,22 +421,17 @@ pub fn contacto_de(crudo: &str, url: &str) -> Option<Contacto> {
         match propiedad.nombre.as_str() {
             "UID" => contacto.uid = recortado(&valor_legible(&propiedad)),
             "FN" => contacto.nombre = recortado(&valor_legible(&propiedad)),
-            "N" => nombre_estructurado = campos_de(&propiedad.valor),
+            "N" => nombre_estructurado = campos_de(&decodificado(&propiedad)),
             "EMAIL" => {
                 // En la 4.0 la dirección viene como `mailto:ana@x`. Dejarlo
                 // haría que el botón de escribirle abriera «mailto:mailto:…».
                 let valor = valor_legible(&propiedad);
-                let valor = valor
-                    .strip_prefix("mailto:")
-                    .or_else(|| valor.strip_prefix("MAILTO:"))
-                    .unwrap_or(&valor)
-                    .trim()
-                    .to_string();
+                let valor = sin_esquema(&valor, "mailto:").trim().to_string();
                 agregar(&mut contacto.correos, &propiedad, valor);
             }
             "TEL" => {
                 let valor = valor_legible(&propiedad);
-                let valor = valor.strip_prefix("tel:").unwrap_or(&valor).trim().to_string();
+                let valor = sin_esquema(&valor, "tel:").trim().to_string();
                 agregar(&mut contacto.telefonos, &propiedad, valor);
             }
             "ORG" => {
@@ -392,7 +439,7 @@ pub fn contacto_de(crudo: &str, url: &str) -> Option<Contacto> {
                 // coma. Se muestran juntas y no sólo la primera: «Vasak Group»
                 // y «Vasak Group, Soporte» son cosas distintas.
                 contacto.organizacion = recortado(
-                    &campos_de(&propiedad.valor)
+                    &campos_de(&decodificado(&propiedad))
                         .into_iter()
                         .filter(|c| !c.trim().is_empty())
                         .collect::<Vec<_>>()
@@ -416,6 +463,19 @@ pub fn contacto_de(crudo: &str, url: &str) -> Option<Contacto> {
         || !contacto.correos.is_empty()
         || !contacto.telefonos.is_empty();
     hay_algo.then_some(contacto)
+}
+
+/// Saca el esquema de un valor, **sin mirar mayúsculas**.
+///
+/// Los esquemas de una URI no las distinguen: `MailTo:` y `TEL:` son tan
+/// válidos como los de minúscula, y los escriben los exportadores de verdad.
+/// Dejarlos pegados hace que el botón de escribir abra «mailto:MailTo:…» y que
+/// el de llamar reciba algo que no es un número.
+fn sin_esquema<'a>(valor: &'a str, esquema: &str) -> &'a str {
+    if valor.len() >= esquema.len() && valor[..esquema.len()].eq_ignore_ascii_case(esquema) {
+        return &valor[esquema.len()..];
+    }
+    valor
 }
 
 fn agregar(destino: &mut Vec<Dato>, propiedad: &Propiedad, valor: String) {
@@ -669,6 +729,57 @@ mod tests {
         let c = contacto_de(vieja, "").unwrap();
         assert_eq!(c.nombre, "Ana Pérez");
         assert_eq!(c.telefonos[0].tipo, "home");
+    }
+
+    /// **El `N` se decodifica antes de partirlo en campos.** Sin eso, una
+    /// tarjeta 2.1 mostraba «P=E9rez» y ordenaba la agenda por eso — que es
+    /// peor que no mostrar el apellido, porque parece que anda.
+    #[test]
+    fn el_nombre_estructurado_se_decodifica_antes_de_partirse() {
+        let vieja = "BEGIN:VCARD\r\nVERSION:2.1\r\n\
+            N;ENCODING=QUOTED-PRINTABLE:P=E9rez;Ana;;;\r\nEND:VCARD";
+
+        let c = contacto_de(vieja, "").unwrap();
+        assert_eq!(c.nombre, "Ana Pérez");
+        assert_eq!(c.orden, "Pérez, Ana");
+    }
+
+    /// Y la organización igual, que tiene el mismo defecto y las mismas partes.
+    #[test]
+    fn la_organizacion_tambien_se_decodifica_antes() {
+        let vieja = "BEGIN:VCARD\r\nFN:Ana\r\n\
+            ORG;ENCODING=QUOTED-PRINTABLE:Panader=EDa;Mostrador\r\nEND:VCARD";
+        assert_eq!(
+            contacto_de(vieja, "").unwrap().organizacion,
+            "Panadería, Mostrador"
+        );
+    }
+
+    /// **Se respeta el juego declarado.** Suponer latin-1 cuando la tarjeta
+    /// dice `windows-1252` convierte las comillas tipográficas y el guión largo
+    /// en caracteres de control invisibles.
+    #[test]
+    fn el_charset_declarado_se_respeta() {
+        // 0x93 y 0x94 son las comillas tipográficas en windows-1252; en
+        // latin-1 son controles que no se ven.
+        let bytes = b"dijo \x93hola\x94";
+        assert_eq!(a_texto(bytes, Some("windows-1252")), "dijo “hola”");
+
+        // Y el que no se conoce cae al respaldo en vez de romper.
+        assert_eq!(a_texto(b"caf\xe9", Some("juego-inventado")), "café");
+    }
+
+    /// Los esquemas de una URI no distinguen mayúsculas, y los exportadores de
+    /// verdad escriben `MailTo:`. Dejarlo pegado hace que el botón de escribir
+    /// abra «mailto:MailTo:…».
+    #[test]
+    fn el_esquema_se_saca_sin_mirar_mayusculas() {
+        let nueva = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ana\r\n\
+            EMAIL:MailTo:ana@ejemplo.com\r\nTEL:TEL:+541155555555\r\nEND:VCARD";
+
+        let c = contacto_de(nueva, "").unwrap();
+        assert_eq!(c.correos[0].valor, "ana@ejemplo.com");
+        assert_eq!(c.telefonos[0].valor, "+541155555555");
     }
 
     /// Y si los bytes no son UTF-8, se leen como latin-1 en vez de mostrar

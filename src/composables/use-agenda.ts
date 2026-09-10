@@ -100,11 +100,15 @@ export function useAgenda(locale: () => string) {
 			}
 			contactos.value = juntados;
 
-			// Si el que estaba abierto ya no está, se cierra el panel: dejarlo
-			// mostraría a alguien que se borró desde otro dispositivo como si
-			// siguiera en la agenda.
-			if (elegido.value && !juntados.some((c) => c.url === elegido.value?.url)) {
-				elegido.value = null;
+			// El que estaba abierto se **reemplaza** por su versión nueva, no
+			// se deja como estaba: si alguien le cambió el teléfono desde otro
+			// dispositivo, la lista mostraría el nuevo y el panel de al lado el
+			// viejo, sin nada que explique la diferencia.
+			//
+			// Y si ya no está, se cierra: dejarlo mostraría a alguien que se
+			// borró como si siguiera en la agenda.
+			if (elegido.value) {
+				elegido.value = juntados.find((c) => c.url === elegido.value?.url) ?? null;
 			}
 		} catch (e) {
 			if (mio !== vigente) {
