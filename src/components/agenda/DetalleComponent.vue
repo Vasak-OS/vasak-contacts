@@ -3,6 +3,7 @@ import { open as abrirConElSistema } from '@tauri-apps/plugin-shell';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { ref } from 'vue';
 import type { Contacto, Dato } from '@/tools/agenda';
+import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
 
 defineProps<{ contacto: Contacto | null }>();
 
@@ -34,13 +35,15 @@ async function copiar(valor: string) {
  * abre la aplicación de correo que la persona eligió, que puede no ser la
  * nuestra — y eso es lo correcto.
  *
- * El valor se codifica antes de meterlo en la URL. Una dirección con un `&` o
- * un `?` —o con lo que sea que traiga una tarjeta que escribió cualquiera—
- * cambiaría lo que se abre.
+ * Cómo se arma cada enlace está en `enlaces.ts`, con sus dos trampas: la de
+ * correo hay que codificarla y la de teléfono hay que limpiarla.
  */
-async function abrir(esquema: 'mailto' | 'tel', valor: string) {
+async function abrir(enlace: string) {
+	if (!enlace) {
+		return;
+	}
 	try {
-		await abrirConElSistema(`${esquema}:${encodeURIComponent(valor.trim())}`);
+		await abrirConElSistema(enlace);
 	} catch (e) {
 		console.error('no se pudo abrir', e);
 	}
@@ -77,7 +80,7 @@ function etiqueta(dato: Dato): string {
             <button
               type="button"
               class="rounded-corner px-2 py-0.5 text-sm hover:bg-ui-surface"
-              @click="abrir('mailto', correo.valor)">
+              @click="abrir(enlaceDeCorreo(correo.valor))">
               {{ t('contacto.escribir') }}
             </button>
             <button
@@ -101,10 +104,13 @@ function etiqueta(dato: Dato): string {
               <span class="text-tx-muted text-xs">{{ etiqueta(telefono) }}</span
               >{{ telefono.valor }}
             </span>
+            <!-- Sin botón si el «número» no tiene dígitos: uno que no hace
+                 nada al apretarlo es peor que no estar. -->
             <button
+              v-if="enlaceDeTelefono(telefono.valor)"
               type="button"
               class="rounded-corner px-2 py-0.5 text-sm hover:bg-ui-surface"
-              @click="abrir('tel', telefono.valor)">
+              @click="abrir(enlaceDeTelefono(telefono.valor))">
               {{ t('contacto.llamar') }}
             </button>
             <button
