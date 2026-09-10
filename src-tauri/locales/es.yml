@@ -9,13 +9,38 @@ _version: 1
 #  2. Los dos idiomas tienen que tener las **mismas claves** y los mismos
 #     marcadores `{0}`. Hay un test que lo verifica.
 app:
-  nombre: Aplicación Vasak
+  nombre: Contactos
 ventana:
   minimizar: Minimizar
   maximizar: Maximizar
   cerrar: Cerrar
-inicio:
-  titulo: Hola, VasakOS
-  descripcion: Esta es la plantilla. Reemplazá esta pantalla por la tuya.
+cuentas:
+  titulo: Cuentas
+  sinCuentasTitulo: Todavía no hay ninguna libreta
+  sinCuentasDescripcion: Conectá una cuenta desde Configuración y sus contactos aparecen acá.
+  necesitaReconectarse: Hay que volver a conectarla desde Configuración
+  noSePudoLeerTodo: No se pudo leer todo
+lista:
+  cargando: Buscando contactos…
+  actualizar: Actualizar
+  buscar: Buscar
+  vacia: No hay nadie en esta libreta
   # `t()` no interpola: el marcador se reemplaza a mano. Ver el README.
-  saludo: "Hola, {0}"
+  sinResultados: "No hay nadie que coincida con «{0}»"
+  sinNombre: (sin nombre)
+  # Para el grupo de los que no empiezan con una letra.
+  otros: Otros
+  cuantosOne: "{0} contacto"
+  cuantosOther: "{0} contactos"
+contacto:
+  elegiUno: Elegí un contacto para verlo
+  correos: Correo
+  telefonos: Teléfono
+  organizacion: Dónde trabaja
+  notas: Notas
+  escribir: Escribir
+  llamar: Llamar
+  copiar: Copiar
+  copiado: Copiado
+  # Se dice porque cambia lo que la persona puede esperar de la ventana.
+  soloLectura: Esta versión muestra los contactos; editarlos viene después.

@@ -1,11 +1,34 @@
 _version: 1
 app:
-  nombre: Vasak Application
+  nombre: Contacts
 ventana:
   minimizar: Minimise
   maximizar: Maximise
   cerrar: Close
-inicio:
-  titulo: Hello, VasakOS
-  descripcion: This is the template. Replace this screen with your own.
-  saludo: "Hello, {0}"
+cuentas:
+  titulo: Accounts
+  sinCuentasTitulo: No address books yet
+  sinCuentasDescripcion: Connect an account from Settings and its contacts will show up here.
+  necesitaReconectarse: It needs to be connected again from Settings
+  noSePudoLeerTodo: Some things could not be read
+lista:
+  cargando: Looking for contacts…
+  actualizar: Refresh
+  buscar: Search
+  vacia: Nobody in this address book
+  sinResultados: "Nobody matches “{0}”"
+  sinNombre: (no name)
+  otros: Other
+  cuantosOne: "{0} contact"
+  cuantosOther: "{0} contacts"
+contacto:
+  elegiUno: Pick a contact to see it
+  correos: Email
+  telefonos: Phone
+  organizacion: Works at
+  notas: Notes
+  escribir: Write
+  llamar: Call
+  copiar: Copy
+  copiado: Copied
+  soloLectura: This version shows contacts; editing comes later.
