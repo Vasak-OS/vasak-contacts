@@ -19,7 +19,7 @@ import TopBarComponent from '@/components/topbar/TopBarComponent.vue';
          plantilla todavía puesto. En vasak-monitor costó una compilación y una
          captura darse cuenta, porque no hay ningún error: simplemente no aparece
          nada. -->
-    <div class="flex min-h-0 flex-1">
+    <div class="flex min-h-0 flex-1 gap-1 p-1">
       <slot>
         <p class="p-4 text-tx-muted text-sm">
           Poné el contenido de la aplicación dentro de
