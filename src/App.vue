@@ -2,7 +2,6 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { useConfigStore } from '@vasakgroup/plugin-config-manager';
 import { onMounted, onUnmounted, type Ref, ref } from 'vue';
-import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import AgendaView from '@/views/AgendaView.vue';
 
 let unListenConfig: Ref<UnlistenFn | null> = ref(null);
@@ -30,7 +29,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <WindowAppLayout>
-    <AgendaView />
-  </WindowAppLayout>
+  <!-- La vista es dueña de la ventana entera, layout incluido.
+       Así el buscador y el botón de actualizar salen del mismo `useAgenda()`
+       que la lista, sin duplicar el estado ni teletransportar nada. -->
+  <AgendaView />
 </template>
