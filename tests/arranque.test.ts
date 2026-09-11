@@ -41,12 +41,22 @@ describe('esperarArranque', () => {
 	});
 
 	test('vencido el plazo, devuelve false y no espera más', async () => {
+		const PLAZO = 30;
 		const nunca = new Promise(() => {});
 		const antes = Date.now();
-		expect(await esperarArranque([nunca], 30)).toBe(false);
+		expect(await esperarArranque([nunca], PLAZO)).toBe(false);
+		const tardo = Date.now() - antes;
+
 		// Que devuelva `false` **y vuelva**: si se quedara esperando igual, la
 		// ventana no abriría nunca, que es el caso que el plazo existe para evitar.
-		expect(Date.now() - antes).toBeLessThan(1000);
+		//
+		// La tolerancia va atada al plazo y no fija: con un techo de un segundo
+		// para un plazo de 30 ms, una regresión que lo retrasara cientos de
+		// milisegundos pasaba igual, y entonces la prueba no comprueba el plazo
+		// sino que el programa no se cuelga. El margen es para la máquina de
+		// integración, que no es puntual.
+		expect(tardo).toBeGreaterThanOrEqual(PLAZO - 5);
+		expect(tardo).toBeLessThan(PLAZO * 10);
 	});
 
 	test('sin tareas no espera nada', async () => {

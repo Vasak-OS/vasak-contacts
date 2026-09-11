@@ -61,7 +61,11 @@ pub fn mostrar_aunque_el_frontend_falle<R: Runtime>(app: AppHandle<R>) {
             "[ventana] el frontend no la mostró en {PLAZO_MS} ms; se muestra igual. \
              Es muy probable que haya fallado al arrancar: mirar el diario."
         );
-        let _ = ventana.show();
+        // Si hasta esto falla no queda nada más que intentar, así que por lo menos
+        // que el motivo esté escrito: lo que se ve es una aplicación sin ventana.
+        if let Err(error) = ventana.show() {
+            eprintln!("[ventana] no se pudo mostrar ni por las malas: {error}");
+        }
     });
 }
 
