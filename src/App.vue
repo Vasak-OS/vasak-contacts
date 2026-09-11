@@ -6,10 +6,14 @@ import AgendaView from '@/views/AgendaView.vue';
 
 let unListenConfig: Ref<UnlistenFn | null> = ref(null);
 
+// La **primera** lectura de la configuración ya no está acá: la hace `main.ts`
+// antes de montar. Estando en `onMounted` corría después del primer dibujo, así
+// que hasta que resolvía no existían las variables `--use-*` y la ventana se veía
+// unos instantes con el tema claro, que es a lo que cae la hoja de estilo cuando
+// no hay ninguna. Lo que queda acá es escuchar los cambios de después.
 onMounted(async () => {
 	try {
 		const configStore = useConfigStore();
-		await configStore.loadConfig();
 
 		unListenConfig.value = await listen('config-changed', async () => {
 			document.startViewTransition(() => {
@@ -17,7 +21,7 @@ onMounted(async () => {
 			});
 		});
 	} catch (error: any) {
-		console.error('Error al cargar configuración en App.vue', error);
+		console.error('Error al escuchar los cambios de configuración en App.vue', error);
 	}
 });
 

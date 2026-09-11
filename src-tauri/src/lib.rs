@@ -8,6 +8,7 @@ mod comandos;
 mod cuentas;
 mod locales;
 mod vcard;
+mod ventana;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -36,6 +37,13 @@ pub fn run() {
             comandos::listar_cuentas,
             comandos::contactos_de_la_cuenta,
         ])
+        .setup(|app| {
+            // La ventana nace oculta y la muestra el frontend cuando ya tiene los
+            // textos y el tema. Esto la muestra igual si el frontend nunca llega:
+            // ver `ventana.rs`.
+            ventana::mostrar_aunque_el_frontend_falle(app.handle().clone());
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error al ejecutar la aplicación");
 }

@@ -12,6 +12,7 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-minimize",
     "core:window:allow-close",
+    "core:window:allow-show",
     "shell:allow-open",
     "vicons:default",
     "config-manager:default",
