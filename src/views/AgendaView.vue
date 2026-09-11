@@ -89,6 +89,8 @@ onMounted(cargar);
       </div>
     </template>
 
+    <!-- Las secciones separadas por aire y no por líneas: cada una es una
+         superficie redondeada, como los paneles del escritorio. -->
     <CuentasComponent :cuentas="cuentas" :avisos="avisos" />
     <ListaComponent
       :contactos="visibles"

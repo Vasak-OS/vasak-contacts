@@ -44,7 +44,7 @@ function tituloDe(inicial: string): string {
 </script>
 
 <template>
-  <div class="flex w-72 shrink-0 flex-col overflow-y-auto border-ui-border border-r">
+  <div class="flex w-72 shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
     <p v-if="cargando && contactos.length === 0" class="p-3 text-tx-muted text-sm" role="status">
       {{ t('lista.cargando') }}
     </p>

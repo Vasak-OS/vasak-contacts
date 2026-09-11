@@ -8,7 +8,7 @@ const { t } = useI18n();
 </script>
 
 <template>
-  <aside class="flex w-52 shrink-0 flex-col gap-3 overflow-y-auto border-ui-border border-r p-3">
+  <aside class="flex w-52 shrink-0 flex-col gap-3 overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45 p-3">
     <!-- Sin ninguna cuenta, lo que hace falta es decir **qué hacer**. Una lista
          vacía sin explicación se lee como una aplicación rota. -->
     <div v-if="cuentas.length === 0" class="flex flex-col gap-1">
