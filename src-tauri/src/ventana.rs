@@ -20,11 +20,20 @@ use tauri::{AppHandle, Manager, Runtime};
 
 /// Cuánto se le da al frontend antes de mostrar la ventana por las malas.
 ///
-/// Más largo que el plazo del frontend (3 s) a propósito: esto no es un camino
+/// Más largo que el plazo del frontend a propósito: esto no es un camino
 /// alternativo, es la red. Mientras el frontend pueda hacerlo él, hay que
 /// dejarlo — porque él sabe *cuándo* la ventana está lista y esto sólo sabe
 /// contar.
-const PLAZO_MS: u64 = 5_000;
+///
+/// Y el margen tiene que cubrir el arranque **entero**, no sólo las dos lecturas
+/// que mide el plazo del frontend: este reloj empieza en el `setup`, o sea antes
+/// de que el motor cargue nada, y entre que vence aquel plazo y se llama a
+/// `show()` todavía están el montaje de la interfaz y el viaje del `show()`
+/// mismo. Con cinco segundos contra tres, un arranque lento de verdad podía
+/// hacer que esta red mostrara la ventana justo mientras la interfaz se montaba
+/// —que es el destello que todo esto viene a sacar—. Con quince no hay caso: en
+/// la compilación de depuración el arranque completo mide 0,65 s.
+const PLAZO_MS: u64 = 15_000;
 
 /// La etiqueta de la única ventana. Es la que Tauri le pone a una ventana
 /// declarada sin `label`, y la misma que nombra `capabilities/default.json`.
@@ -119,9 +128,14 @@ mod tests {
             .find_map(|l| l.strip_prefix("const PLAZO_ARRANQUE_MS = "))
             .and_then(|v| v.trim_end_matches(';').trim().parse().ok())
             .expect("no se encontró PLAZO_ARRANQUE_MS en src/main.ts");
+        // Con margen, y no apenas más: entre que vence el plazo del frontend y
+        // la ventana se muestra están el montaje de la interfaz y la llamada a
+        // `show()`, que este reloj no mide porque arranca en el `setup`.
+        let margen = super::PLAZO_MS.saturating_sub(plazo_frontend);
         assert!(
-            super::PLAZO_MS > plazo_frontend,
-            "la red ({}) tiene que esperar más que el frontend ({plazo_frontend})",
+            margen >= plazo_frontend,
+            "la red ({}) tiene que dejarle al montaje al menos tanto como al \
+             backend ({plazo_frontend} ms), y le deja {margen}",
             super::PLAZO_MS
         );
     }

@@ -39,7 +39,17 @@ export function esperarArranque(tareas: Promise<unknown>[], plazoMs: number): Pr
 		reloj = setTimeout(() => resolver(false), plazoMs);
 	});
 
-	const todas = Promise.all(tareas.map((tarea) => tarea.catch(() => undefined))).then(() => true);
+	const todas = Promise.all(
+		tareas.map((tarea, i) =>
+			tarea.catch((error) => {
+				// Sin esto el fallo no existe en ninguna parte: la ventana abre con
+				// el tema por omisión o con las claves a la vista, y no hay nada que
+				// mirar para saber por qué. `loadConfig()` es el caso puntual —
+				// propaga los rechazos del backend sin registrarlos.
+				console.error(`Falló la tarea de arranque n.º ${i}`, error);
+			})
+		)
+	).then(() => true);
 
 	// El `clearTimeout` no es cosmético: sin él, un plazo de varios segundos deja
 	// un temporizador vivo después de que la ventana ya se dibujó.

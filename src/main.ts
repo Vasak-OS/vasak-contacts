@@ -98,6 +98,11 @@ const arranqueCompleto = await esperarArranque(
 );
 
 if (!arranqueCompleto) {
+	// Y si después de abrir la ventana alguna de las dos termina, se ve el
+	// repintado: las claves cambiando a texto, o el tema acomodándose. Es feo y es
+	// a propósito — la alternativa sería no mostrar la ventana hasta que terminen,
+	// que es justo lo que el plazo existe para evitar. Un repintado tardío después
+	// de tres segundos de falla es mejor que una aplicación que no abre.
 	console.error(
 		`El arranque no terminó en ${PLAZO_ARRANQUE_MS} ms: la ventana se abre con ` +
 			'lo que haya, y puede mostrar las claves sin traducir o el tema por omisión.'
