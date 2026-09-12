@@ -26,7 +26,7 @@ serde_json = "1"
 # hablar el idioma de la sesión y abrir el menú del sistema con el clic derecho.
 tauri-plugin-vicons = "2"
 tauri-plugin-config-manager = "2"
-tauri-plugin-i18n-vsk = "2.1.1"
+tauri-plugin-i18n-vsk = "2.3.0"
 tauri-plugin-vsk-contextual-menu = "2"
 tauri-plugin-shell = "2"
 
