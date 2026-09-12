@@ -3,7 +3,7 @@ import { useConfigStore } from '@vasakgroup/plugin-config-manager';
 import { getIconSource } from '@vasakgroup/plugin-vicons';
 import { setupContextMenu } from '@vasakgroup/plugin-vsk-contextual-menu';
 import { captureFailures } from '@vasakgroup/plugin-vsk-journal';
-import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import I18n from '@vasakgroup/tauri-plugin-i18n';
 import { createPinia } from 'pinia';
 import { createApp } from 'vue';
 import App from '@/App.vue';
@@ -67,33 +67,23 @@ app.config.errorHandler = (error, _instancia, info) => {
 
 // Las dos cosas que la ventana necesita tener antes del primer dibujo.
 //
-// Los textos van por `useI18n().reload()` y **no** por `I18n.getInstance().load()`,
-// que es lo que había acá. Son dos estados distintos: la clase guarda el catálogo
-// en un campo suyo, y el composable —el que usan los componentes para su `t()`—
-// lo guarda en unas referencias de módulo aparte que la clase no toca. Esperar a
-// la clase, entonces, no adelantaba nada: la interfaz se montaba con el
-// composable todavía vacío, su `t()` devolvía la clave tal cual, y los textos
-// recién aparecían cuando el `onMounted` del primer componente volvía a cargar
-// todo por su cuenta. `reload()` llena el estado que la interfaz de verdad lee, y
-// de paso deja la clase cargada, que es la misma llamada por dentro.
+// Los textos, una sola vez para toda la aplicación: el `onMounted` de cada
+// `useI18n()` carga sólo si falta, así que cargando antes de montar el primero
+// que mira ya lo encuentra hecho.
 //
-// De yapa, esto es lo que deja de cargar el catálogo una vez por componente:
-// cada `useI18n()` lo pedía en su `onMounted`, todos veían el estado vacío en el
-// mismo instante y todos arrancaban su propia carga —dos llamadas al backend y
-// un `listen` cada uno, y los `listen` no se cancelan nunca—. Cargado antes de
-// montar, el primero que mira ya lo encuentra hecho.
-//
-// Llamar a `useI18n()` fuera de un componente hace que Vue avise por consola
-// que su `onMounted` no tiene a quién asociarse. Es cierto y es inofensivo —ese
-// `onMounted` es justamente el que acá no hace falta—, y el aviso sólo existe en
-// el build de desarrollo: `vite build` lo descarta.
+// Acá hubo un rodeo hasta la 2.3.0 del plugin: se llamaba a `useI18n().reload()`
+// porque la clase y el composable guardaban el catálogo por separado y el `t()`
+// de los componentes leía el del composable, así que esperar a la clase no
+// adelantaba nada. Ahora hay un solo estado y `load()` alcanza — de ahí que el
+// `package.json` pida `^2.3.0` y no `^2.1.0`: con la vieja, esto se monta con
+// las claves a la vista.
 //
 // El tema venía del `onMounted` de `App.vue`, o sea después del primer dibujo:
 // hasta que resolvía, las variables `--use-*` no existían y el `@theme` de la
 // hoja de estilo caía en los valores por omisión, que son los del tema claro.
 // Acá se lee antes de montar, y `App.vue` se queda sólo con el aviso de cambios.
 const arranqueCompleto = await esperarArranque(
-	[useI18n().reload(), useConfigStore().loadConfig()],
+	[I18n.getInstance().load(), useConfigStore().loadConfig()],
 	PLAZO_ARRANQUE_MS
 );
 

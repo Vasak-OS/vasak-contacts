@@ -32,18 +32,16 @@ const { default: I18n, useI18n } = await import('@vasakgroup/tauri-plugin-i18n')
  * componente cargaba todo otra vez por su cuenta.
  */
 describe('cargar las traducciones antes de montar', () => {
-	test('cargar la clase no le da nada al t() de los componentes', async () => {
-		// Esto es exactamente lo que hacía `main.ts` antes, y es la trampa: la
-		// llamada anda, no falla, no avisa, y no sirve para lo que se la usaba.
-		await I18n.getInstance().load();
-
+	test('antes de cargar, el t() devuelve la clave', () => {
 		expect(useI18n().t('vsk.prueba')).toBe('vsk.prueba');
 	});
 
-	test('reload() sí, que es el estado que la interfaz lee', async () => {
-		// Y esto es lo que hace ahora. Es la misma llamada al backend por dentro;
-		// la diferencia es dónde deja el resultado.
-		await useI18n().reload();
+	test('cargar la clase deja listo el t() de los componentes', async () => {
+		// Esto es lo que hace `main.ts` antes de montar, y es lo que tiene que
+		// alcanzar. Hasta la 2.3.0 no alcanzaba: la llamada andaba, no fallaba, no
+		// avisaba, y no servía para lo que se la usaba, porque el catálogo quedaba
+		// en un estado que el `t()` de los componentes no lee.
+		await I18n.getInstance().load();
 
 		const { t, isLoaded, locale } = useI18n();
 		expect(isLoaded.value).toBe(true);
