@@ -24,14 +24,28 @@ function abrir() {
 	return vista;
 }
 
-/** Lo que se dibuja dentro de una ranura de la barra. */
+/** Lo que cada llamada a `ranura()` dejó montado, para desmontarlo después. */
+const sueltos: VueWrapper[] = [];
+
+/**
+ * Lo que se dibuja dentro de una ranura de la barra.
+ *
+ * Monta un componente aparte, así que lo que devuelve **no** cuelga de `vista`
+ * y no se va con ella: se anota acá y el `afterEach` lo desmonta. Sin eso cada
+ * prueba deja un componente vivo, con sus oyentes puestos, hasta que termina el
+ * archivo.
+ */
 function ranura(ventana: VueWrapper, nombre: string) {
 	const barra = ventana.findComponent(AppBar);
 	const dibujar = (barra.vm.$slots as Record<string, (() => unknown) | undefined>)[nombre];
-	return dibujar ? mount({ render: () => dibujar() }) : null;
+	if (!dibujar) return null;
+	const suelto = mount({ render: () => dibujar() });
+	sueltos.push(suelto);
+	return suelto;
 }
 
 afterEach(() => {
+	for (const suelto of sueltos.splice(0)) suelto.unmount();
 	vista?.unmount();
 	vista = null;
 	olvidarTodo();
