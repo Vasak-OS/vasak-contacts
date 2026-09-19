@@ -1,20 +1,11 @@
-import { describe, expect, mock, test } from 'bun:test';
+import { describe, expect, test } from 'bun:test';
+import { CATALOGO } from './dobles';
 
-/**
- * El catálogo que el proceso de Rust devolvería, con una sola clave: lo que se
- * prueba acá no es el contenido sino **cuándo** la interfaz lo tiene.
- */
-const CATALOGO = { es: { 'vsk.prueba': 'Traducido' } };
-
-mock.module('@tauri-apps/api/core', () => ({
-	invoke: async (comando: string) => {
-		if (comando === 'plugin:i18n|load_translations') return CATALOGO;
-		if (comando === 'plugin:i18n|get_locale') return 'es';
-		return null;
-	},
-}));
-mock.module('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
-
+// El `invoke` y el `listen` los dobla `tests/preparar.ts`, y el catálogo que
+// contesta es el de `tests/dobles.ts`. Doblarlos otra vez acá los duplicaba:
+// con dos `mock.module` sobre el mismo módulo gana el último que se registra, y
+// Bun no garantiza en qué orden evalúa los archivos de prueba. Acá pasaba y en
+// CI fallaba, con `locale` en `undefined`.
 const { default: I18n, useI18n } = await import('@vasakgroup/tauri-plugin-i18n');
 
 /**
@@ -46,7 +37,7 @@ describe('cargar las traducciones antes de montar', () => {
 		const { t, isLoaded, locale } = useI18n();
 		expect(isLoaded.value).toBe(true);
 		expect(locale.value).toBe('es');
-		expect(t('vsk.prueba')).toBe('Traducido');
+		expect(t('vsk.prueba')).toBe(CATALOGO.es['vsk.prueba']);
 	});
 
 	test('una clave que no está en el catálogo se sigue viendo cruda', async () => {

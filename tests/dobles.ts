@@ -30,7 +30,21 @@ export function useConfigStore() {
 	return { config: configuracion, loadConfig: async () => {} };
 }
 
-export async function invoke(_comando: string) {
+/**
+ * El catálogo que el proceso de Rust contestaría, con una sola clave.
+ *
+ * Vive acá y no dentro de `traducciones.test.ts` porque **hay un solo `invoke`
+ * doblado para toda la suite**. Con dos `mock.module` sobre
+ * `@tauri-apps/api/core` —el del `preload` y el de una prueba— gana el último
+ * que se registra, y Bun no garantiza en qué orden evalúa los archivos: la
+ * carga del idioma pasaba por el doble equivocado y `locale` quedaba
+ * `undefined`. Local pasaba y en CI fallaba.
+ */
+export const CATALOGO = { es: { 'vsk.prueba': 'Traducido' } };
+
+export async function invoke(comando: string) {
+	if (comando === 'plugin:i18n|load_translations') return CATALOGO;
+	if (comando === 'plugin:i18n|get_locale') return 'es';
 	return undefined;
 }
 
