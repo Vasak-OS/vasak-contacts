@@ -85,3 +85,31 @@ describe('lo que la agenda ya no dibuja', () => {
 		expect(culpables).toEqual([]);
 	});
 });
+
+describe('el plugin de configuración no se puede caer para atrás', () => {
+	test('la versión instalada preserva las claves que no conoce', async () => {
+		// Por debajo de la 2.6.0 el plugin lee `vasak.conf`, lo reescribe con
+		// las claves que su modelo conoce y **pierde el resto sin avisar**: los
+		// widgets acomodados del escritorio volvían a la disposición de fábrica
+		// al cambiar cualquier cosa en Ajustes. Con varias aplicaciones
+		// escribiendo el mismo archivo, cada guardado se lleva puesto lo de otra.
+		//
+		// Lo que ese arreglo hace de verdad está probado donde se lee y se
+		// escribe el archivo: `normalizar_no_se_come_los_widgets` y
+		// `cambiar_el_tema_no_se_come_los_widgets`, en el Rust del plugin. Acá
+		// no se puede probar: `readConfig` y `writeConfig` son llamadas al
+		// backend, y en `bun test` no hay backend — lo único que se podría
+		// montar es un doble del plugin, que probaría el doble.
+		//
+		// Lo que sí se puede es que nadie vuelva atrás sin querer. Se mira la
+		// versión instalada y no el rango, por lo mismo que en la librería: leer
+		// la instalada evita interpretar a mano un `^` o un salto de mayor.
+		const instalada = (
+			(await Bun.file(
+				`${RAIZ}node_modules/@vasakgroup/plugin-config-manager/package.json`
+			).json()) as { version: string }
+		).version;
+
+		expect(Bun.semver.satisfies(instalada, '>=2.6.0')).toBe(true);
+	});
+});
