@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { AlertMessage } from '@vasakgroup/vue-libvasak';
 import type { Cuenta } from '@/composables/use-agenda';
 
 defineProps<{ cuentas: Cuenta[]; avisos: string[] }>();
@@ -33,14 +34,20 @@ const { t } = useI18n();
 
     <!-- Lo que no se pudo leer va a la vista y no a la consola: una libreta
          vacía y una que falló se ven idénticas, y «no tengo a nadie anotado» y
-         «no sé a quién tengo anotado» no son lo mismo. -->
-    <section v-if="avisos.length > 0" class="flex flex-col gap-1" role="status">
-      <h2 class="font-medium text-status-warning text-xs uppercase">
-        {{ t('cuentas.noSePudoLeerTodo') }}
-      </h2>
-      <ul class="flex flex-col gap-1">
-        <li v-for="aviso in avisos" :key="aviso" class="text-tx-muted text-xs">{{ aviso }}</li>
+         «no sé a quién tengo anotado» no son lo mismo.
+
+         En el aviso del sistema: el amarillo, el borde y el rol salían de una
+         copia a mano de la misma tabla. Es `warning` y no `error` a propósito
+         —la agenda funciona, sólo que incompleta—, y con eso el rol sigue
+         siendo `status`: espera turno en vez de interrumpir. -->
+    <AlertMessage
+      v-if="avisos.length > 0"
+      tone="warning"
+      icon="dialog-warning"
+      :title="t('cuentas.noSePudoLeerTodo')">
+      <ul class="flex flex-col gap-1 text-xs">
+        <li v-for="aviso in avisos" :key="aviso">{{ aviso }}</li>
       </ul>
-    </section>
+    </AlertMessage>
   </aside>
 </template>
