@@ -52,12 +52,20 @@ export async function listen(_nombre: string, _manejador: () => unknown) {
 	return () => {};
 }
 
-export async function getIconSource(_nombre: string) {
-	return '';
+/**
+ * El tema resuelto, de mentira.
+ *
+ * Devolvían la cadena vacía, y con el `<img>` escrito a mano eso daba un `img`
+ * igual —vacío, pero presente—. `ThemeIcon` no dibuja el `img` hasta tener
+ * fuente: deja un hueco del mismo tamaño para que la fila no salte. Así que el
+ * doble tiene que devolver algo, o lo que se comprueba es el hueco.
+ */
+export async function getIconSource(nombre: string) {
+	return `icono:${nombre}`;
 }
 
-export async function getSymbolSource(_nombre: string) {
-	return '';
+export async function getSymbolSource(nombre: string) {
+	return `simbolo:${nombre}`;
 }
 
 export function olvidarTodo() {

@@ -1,12 +1,11 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { BarSearch } from '@vasakgroup/vue-libvasak';
+import { BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, onMounted } from 'vue';
 import CuentasComponent from '@/components/agenda/CuentasComponent.vue';
 import DetalleComponent from '@/components/agenda/DetalleComponent.vue';
 import ListaComponent from '@/components/agenda/ListaComponent.vue';
 import { useAgenda } from '@/composables/use-agenda';
-import { useReactiveIcons } from '@/composables/useReactiveIcon';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 
@@ -14,18 +13,6 @@ const { t, locale } = useI18n();
 const { cuentas, visibles, elegido, consulta, cargando, avisos, cargar, elegir } = useAgenda(
 	() => locale.value
 );
-
-const { actualizar, icono } = useReactiveIcons({
-	actualizar: 'view-refresh',
-	// El icono de la aplicación, no un símbolo: es la identidad de la ventana y
-	// va a color, como en el resto del escritorio.
-	//
-	// `contacts` y no `x-office-address-book`, que es el nombre más obvio: ese
-	// otro existe **también** como icono de tipo de archivo, y el tema resolvía
-	// el de `mimes/` — una hoja con una arroba, que no es la aplicación. Este
-	// nombre está sólo en `apps/`, así que no hay nada que desempatar.
-	icono: { name: 'contacts', type: 'icon' },
-});
 
 const cuantos = computed(() =>
 	interpolar(t(claveSegunCantidad('lista.cuantos', visibles.value.length)), visibles.value.length)
@@ -44,7 +31,14 @@ onMounted(cargar);
          Va en `identidad` y no en el contenido de la barra: es la única zona
          que no se desplaza con el resto cuando la barra queda a un costado. -->
     <template #identidad>
-      <img :src="icono" class="h-6 w-6 shrink-0" :alt="t('app.nombre')" />
+      <!-- A color y no monocromo: es la identidad de la ventana, como en el
+           resto del escritorio.
+
+           `contacts` y no `x-office-address-book`, que es el nombre más obvio:
+           ese otro existe **también** como icono de tipo de archivo, y el tema
+           resolvía el de `mimes/` — una hoja con una arroba, que no es la
+           aplicación. Éste está sólo en `apps/`, así que no hay qué desempatar. -->
+      <ThemeIcon name="contacts" :size="24" :alt="t('app.nombre')" />
     </template>
 
     <!-- El estado y el botón de actualizar, junto a los botones de la ventana,
@@ -63,7 +57,7 @@ onMounted(cargar);
         :title="t('lista.actualizar')"
         :disabled="cargando"
         @click="cargar()">
-        <img :src="actualizar" class="h-6 w-6" alt="" />
+        <ThemeIcon name="view-refresh" type="symbol" :size="24" />
       </button>
     </template>
 
