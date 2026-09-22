@@ -4054,10 +4054,11 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-config-manager"
-version = "2.6.0"
+version = "2.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d7ded4a825c8e819683d6f40ff22add5589881c0c4e1f2dc80c6c5798b0f987b"
+checksum = "88a5561596a6abc058c9d230373e489dafa9b119cf170525e829ae1b53da7443"
 dependencies = [
+ "dirs",
  "home",
  "notify",
  "serde",
@@ -4109,11 +4110,12 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-vicons"
-version = "2.1.2"
+version = "2.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "480910827f8ef55d24c717f3063b888bdcf5fd6ac041a01907bb7c102502e1c3"
+checksum = "b6582d78c225cf8fd9fcff2aae9eada42566ca26ba885f28e824ed90356828c4"
 dependencies = [
  "base64 0.22.1",
+ "dirs",
  "glib",
  "gtk",
  "serde",
@@ -4772,7 +4774,7 @@ dependencies = [
 
 [[package]]
 name = "vasak-contacts"
-version = "0.3.1"
+version = "0.4.0"
 dependencies = [
  "base64 0.22.1",
  "encoding_rs",
