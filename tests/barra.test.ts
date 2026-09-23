@@ -111,12 +111,33 @@ describe('el buscador', () => {
 		expect(abrir().findComponent(BarSearch).exists()).toBe(true);
 	});
 
-	test('va en `centro`, al medio de la ventana entera', () => {
-		// Centrado entre el icono y los tres controles queda centrado respecto
-		// de lo que sobra, y los controles ocupan bastante más que el icono.
-		const dentro = ranura(abrir(), 'centro');
+	test('va en el contenido de la barra, que es lo único que crece', () => {
+		// Y no en `centro`, que centra respecto de la ventana entera: con el
+		// icono de un lado y el estado, actualizar y los tres controles del
+		// otro, el medio de la ventana no es el medio del hueco.
+		const dentro = ranura(abrir(), 'default');
 
 		expect(dentro?.findComponent(BarSearch).exists()).toBe(true);
+	});
+
+	test('y ya no queda nada en `centro`', () => {
+		// La ranura sigue existiendo en el marco, y llenar las dos pondría dos
+		// buscadores: el de `centro` va encima de la barra, así que se verían
+		// los dos a la vez y superpuestos.
+		expect(ranura(abrir(), 'centro')).toBeNull();
+	});
+
+	test('centrado en el hueco, con márgenes automáticos', () => {
+		// `m-auto` reparte lo que sobra del contenedor a los dos lados. Sin él
+		// el grupo se pega al principio de la barra: el contenedor es flexible
+		// y los hijos no se centran solos.
+		//
+		// En los dos ejes y no sólo el horizontal: con la barra a un costado el
+		// hueco es vertical, y el margen automático centra en el eje que
+		// corresponda sin que haya que preguntar cuál es.
+		const dentro = ranura(abrir(), 'default');
+
+		expect(dentro?.find('div').classes()).toContain('m-auto');
 	});
 
 	test('lo que se escribe llega a la lista', async () => {
@@ -132,12 +153,24 @@ describe('el buscador', () => {
 		expect(ventana.findComponent(ListaComponent).props('consulta')).toBe('pepe');
 	});
 
-	test('el contador queda colgado del campo y no al lado', () => {
-		// Contando para el centrado, el buscador se corre a la izquierda; y
-		// además se movería solo al pasar de «9 contactos» a «124 contactos».
-		const dentro = ranura(abrir(), 'centro');
+	test('el contador va al lado y cuenta para el centrado', () => {
+		// Lo que se ve como una sola cosa es «campo más número»: colgado en
+		// absoluto no contaba, y el conjunto quedaba corrido aunque el campo
+		// estuviera centrado.
+		const dentro = ranura(abrir(), 'default');
 		const contador = dentro?.find('[aria-live="polite"]');
 
-		expect(contador?.classes()).toContain('absolute');
+		expect(contador?.classes()).not.toContain('absolute');
+	});
+
+	test('y no se mueve al cambiar de dos dígitos a tres', () => {
+		// Sin un ancho mínimo, pasar de «9 contactos» a «124 contactos» corre el
+		// campo: ahora el número cuenta para el centrado, así que cada dígito lo
+		// empuja. Es lo que este ancho —y las cifras de ancho fijo— sostienen.
+		const dentro = ranura(abrir(), 'default');
+		const contador = dentro?.find('[aria-live="polite"]');
+
+		expect(contador?.classes()).toContain('min-w-24');
+		expect(contador?.classes()).toContain('tabular-nums');
 	});
 });
