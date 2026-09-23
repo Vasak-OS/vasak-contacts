@@ -23,6 +23,7 @@ use std::time::Duration;
 use base64::Engine;
 use serde::Serialize;
 
+use crate::cuentas::{AuthKind, Credencial};
 use crate::vcard::{self, Contacto};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
@@ -92,7 +93,11 @@ pub fn libretas_de(xml: &str, base: &str) -> Result<Vec<Libreta>, String> {
                 url,
                 // Una libreta sin nombre igual se muestra: es donde puede estar
                 // el contacto que la persona busca.
-                nombre: if nombre.is_empty() { "Contactos".into() } else { nombre },
+                nombre: if nombre.is_empty() {
+                    "Contactos".into()
+                } else {
+                    nombre
+                },
             })
         })
         .collect())
@@ -157,11 +162,21 @@ pub fn consulta_de_tarjetas() -> String {
 // La parte que habla por la red
 // ---------------------------------------------------------------------------
 
-fn cabecera_basica(usuario: &str, secreto: &str) -> String {
-    format!(
-        "Basic {}",
-        base64::engine::general_purpose::STANDARD.encode(format!("{usuario}:{secreto}"))
-    )
+/// La cabecera `Authorization` que le corresponde a esta cuenta.
+///
+/// `Basic` para una contraseña y `Bearer` para un token. No es una preferencia:
+/// Google contesta 401 a cualquier `Basic`, y un servidor que espera contraseña
+/// no entiende un `Bearer`. Cuál va lo decide lo que guardó el servicio de
+/// cuentas, no el proveedor — ver `cuentas::AuthKind`.
+fn cabecera_de(credencial: &Credencial) -> String {
+    match credencial.auth {
+        AuthKind::Password => format!(
+            "Basic {}",
+            base64::engine::general_purpose::STANDARD
+                .encode(format!("{}:{}", credencial.usuario, credencial.secreto))
+        ),
+        AuthKind::Token => format!("Bearer {}", credencial.secreto),
+    }
 }
 
 fn cliente() -> Result<reqwest::Client, String> {
@@ -210,10 +225,7 @@ async fn cuerpo_con_tope(mut respuesta: reqwest::Response) -> Result<String, Str
 pub async fn libretas(credencial: &crate::cuentas::Credencial) -> Result<Vec<Libreta>, String> {
     let respuesta = cliente()?
         .request(metodo("PROPFIND"), &credencial.home)
-        .header(
-            "Authorization",
-            cabecera_basica(&credencial.usuario, &credencial.secreto),
-        )
+        .header("Authorization", cabecera_de(credencial))
         // 1: la carpeta y lo que hay dentro. Con 0 sólo vendría la carpeta, que
         // es justo lo que no interesa.
         .header("Depth", "1")
@@ -234,10 +246,7 @@ pub async fn contactos(
 ) -> Result<Vec<Contacto>, String> {
     let respuesta = cliente()?
         .request(metodo("REPORT"), libreta)
-        .header(
-            "Authorization",
-            cabecera_basica(&credencial.usuario, &credencial.secreto),
-        )
+        .header("Authorization", cabecera_de(credencial))
         // 1: las tarjetas de esta libreta. El estándar lo pide, y hay
         // servidores que sin esto devuelven vacío.
         .header("Depth", "1")
@@ -269,6 +278,46 @@ fn metodo(nombre: &str) -> reqwest::Method {
 mod tests {
     use super::*;
 
+    fn credencial(auth: AuthKind) -> Credencial {
+        Credencial {
+            home: "https://servidor.ejemplo.com/dav/".into(),
+            usuario: "ana@ejemplo.com".into(),
+            secreto: "el-secreto".into(),
+            auth,
+        }
+    }
+
+    /// Una contraseña va en `Basic`, con el usuario delante.
+    #[test]
+    fn la_contrasena_viaja_en_basic() {
+        let cabecera = cabecera_de(&credencial(AuthKind::Password));
+
+        assert!(cabecera.starts_with("Basic "), "{cabecera}");
+        let codificado =
+            base64::engine::general_purpose::STANDARD.encode("ana@ejemplo.com:el-secreto");
+        assert_eq!(cabecera, format!("Basic {codificado}"));
+    }
+
+    /// Un token va en `Bearer` y **sin el usuario**: Google contesta 401 a
+    /// cualquier `Basic`, y el rechazo parece de credenciales.
+    #[test]
+    fn el_token_viaja_en_bearer() {
+        let cabecera = cabecera_de(&credencial(AuthKind::Token));
+
+        assert_eq!(cabecera, "Bearer el-secreto");
+    }
+
+    /// El secreto nunca se codifica en base64 cuando es un token: eso es lo que
+    /// hacía que Google lo rechazara, y el modo de fallo es silencioso porque
+    /// una cabecera mal armada se ve igual que una bien armada.
+    #[test]
+    fn las_dos_formas_no_se_parecen() {
+        let con_clave = cabecera_de(&credencial(AuthKind::Password));
+        let con_token = cabecera_de(&credencial(AuthKind::Token));
+
+        assert_ne!(con_clave, con_token);
+    }
+
     const LIBRETAS: &str = r#"<?xml version="1.0"?>
 <d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
   <d:response>
@@ -288,8 +337,11 @@ mod tests {
     /// entradas que al abrirlas no tienen nada.
     #[test]
     fn solo_se_listan_las_colecciones_que_son_libretas() {
-        let libretas =
-            libretas_de(LIBRETAS, "https://nube.ejemplo.com/dav/addressbooks/users/ana/").unwrap();
+        let libretas = libretas_de(
+            LIBRETAS,
+            "https://nube.ejemplo.com/dav/addressbooks/users/ana/",
+        )
+        .unwrap();
 
         assert_eq!(libretas.len(), 1);
         assert_eq!(libretas[0].nombre, "Personal");
@@ -339,9 +391,11 @@ END:VCARD
     /// estar repetido, o ser el mismo en dos libretas distintas.
     #[test]
     fn la_tarjeta_sale_con_su_direccion() {
-        let tarjetas =
-            tarjetas_de(TARJETAS, "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/")
-                .unwrap();
+        let tarjetas = tarjetas_de(
+            TARJETAS,
+            "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/",
+        )
+        .unwrap();
 
         assert_eq!(tarjetas.len(), 1);
         assert!(tarjetas[0].0.ends_with("/ana.vcf"), "{}", tarjetas[0].0);

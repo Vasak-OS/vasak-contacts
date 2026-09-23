@@ -60,6 +60,28 @@ pub struct Credencial {
     pub home: String,
     pub usuario: String,
     pub secreto: String,
+    /// Qué **es** ese secreto, que decide cómo se manda.
+    pub auth: AuthKind,
+}
+
+/// Cómo autenticarse contra el servidor.
+///
+/// Se decide por **lo que guardó el servicio de cuentas** y no por el proveedor:
+/// una cuenta de Google conectada por OAuth2 y una conectada como servidor
+/// personalizado con contraseña se ven igual desde acá. La marca es el
+/// `client_id`, que sólo tienen las que pasaron por un flujo OAuth2 —lo escribe
+/// el servicio junto con las URLs para renovar el token—. Es el mismo criterio
+/// que usa el sincronizador de correo, y por el mismo motivo.
+///
+/// Confundirlas manda una contraseña donde va un token: el servidor contesta un
+/// rechazo que parece de credenciales y manda a revisar la contraseña de una
+/// cuenta que está perfecta.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AuthKind {
+    /// Usuario y contraseña, en una cabecera `Basic`.
+    Password,
+    /// Un token de acceso, en una cabecera `Bearer`. Google no acepta otra cosa.
+    Token,
 }
 
 impl std::fmt::Debug for Credencial {
@@ -68,6 +90,7 @@ impl std::fmt::Debug for Credencial {
             .field("home", &self.home)
             .field("usuario", &self.usuario)
             .field("secreto", &"<tachado>")
+            .field("auth", &self.auth)
             .finish()
     }
 }
@@ -141,10 +164,7 @@ pub async fn credencial_de(account_id: &str) -> Result<Credencial, String> {
 }
 
 /// Arma la credencial a partir de lo que guardó el servicio al conectar.
-pub fn credencial_desde(
-    config: &serde_json::Value,
-    secreto: String,
-) -> Result<Credencial, String> {
+pub fn credencial_desde(config: &serde_json::Value, secreto: String) -> Result<Credencial, String> {
     let campo = |nombre: &str| config.get(nombre).and_then(|v| v.as_str());
 
     let home = campo("url").ok_or(
@@ -162,7 +182,20 @@ pub fn credencial_desde(
         ));
     }
 
-    Ok(Credencial { home: home.to_string(), usuario, secreto })
+    // El `client_id` es la marca de que la cuenta pasó por un flujo OAuth2, así
+    // que el secreto es un token y no una contraseña. Ver `AuthKind`.
+    let auth = if campo("client_id").is_some() {
+        AuthKind::Token
+    } else {
+        AuthKind::Password
+    };
+
+    Ok(Credencial {
+        home: home.to_string(),
+        usuario,
+        secreto,
+        auth,
+    })
 }
 
 #[cfg(test)]
@@ -193,6 +226,7 @@ mod tests {
             home: "https://nube.ejemplo.com/dav/addressbooks/users/ana/".into(),
             usuario: "ana".into(),
             secreto: "la-contrasena-de-verdad".into(),
+            auth: AuthKind::Password,
         };
 
         let impreso = format!("{credencial:?}");
@@ -213,6 +247,41 @@ mod tests {
         let credencial = credencial_desde(&config, "la-contrasena".into()).unwrap();
         assert_eq!(credencial.usuario, "ana");
         assert!(credencial.home.ends_with("/users/ana/"));
+    }
+
+    /// Una cuenta con contraseña se autentica con contraseña.
+    ///
+    /// Es la de Nextcloud y la del servidor escrito a mano: lo que guardó el
+    /// servicio no tiene `client_id` porque nunca pasó por un flujo OAuth2.
+    #[test]
+    fn sin_client_id_el_secreto_es_una_contrasena() {
+        let config = json!({
+            "url": "https://nube.ejemplo.com/remote.php/dav/addressbooks/users/ana/",
+            "username": "ana",
+        });
+
+        let credencial = credencial_desde(&config, "la-contrasena".into()).unwrap();
+        assert_eq!(credencial.auth, AuthKind::Password);
+    }
+
+    /// Y una de Google, con token.
+    ///
+    /// La marca es el `client_id`, que sólo lo escribe el servicio cuando la
+    /// cuenta pasó por OAuth2. Mandarle `Basic` a Google da 401, y el rechazo
+    /// parece de credenciales: manda a revisar la contraseña de una cuenta que
+    /// está perfecta.
+    #[test]
+    fn con_client_id_el_secreto_es_un_token() {
+        let config = json!({
+            "url": "https://www.googleapis.com/carddav/v1/principals/ana@gmail.com/",
+            "username": "ana@gmail.com",
+            "client_id": "algo.apps.googleusercontent.com",
+            "token_url": "https://oauth2.googleapis.com/token",
+        });
+
+        let credencial = credencial_desde(&config, "el-token".into()).unwrap();
+        assert_eq!(credencial.auth, AuthKind::Token);
+        assert_eq!(credencial.usuario, "ana@gmail.com");
     }
 
     /// Sin cifrar no se habla: por ahí la contraseña de la cuenta viajaría en
