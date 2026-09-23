@@ -10,10 +10,11 @@
  * arriba, abajo, a la izquierda o a la derecha según `window.barPosition` en
  * `~/.config/vasak/vasak.conf`.
  *
- * `centro` es el buscador, centrado respecto de la ventana entera y no de lo
- * que sobra entre el icono y los controles: entre columnas se corre lo
- * suficiente como para que se note, porque los tres botones ocupan más que el
- * icono.
+ * Las ranuras van tal cual al marco. `barra` es el contenido, que es lo único
+ * que crece y donde va el buscador: centrado ahí queda en el medio de lo que
+ * sobra entre el icono y los controles, que es donde el ojo lo busca. `centro`
+ * sigue significando lo que dice —centrado respecto de la ventana entera— y
+ * queda para lo que de verdad lo necesite; acá ya no lo usa nadie.
  */
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { WindowFrame } from '@vasakgroup/vue-libvasak';

@@ -61,19 +61,28 @@ onMounted(cargar);
       </button>
     </template>
 
-    <!-- El buscador al medio de la barra y siempre a la vista: es lo que se
-         usa en una agenda, y esconderlo detrás de un atajo o un botón lo vuelve
-         invisible para quien no lo conoce.
+    <!-- El buscador siempre a la vista: es lo que se usa en una agenda, y
+         esconderlo detrás de un atajo o un botón lo vuelve invisible para quien
+         no lo conoce.
 
-         Centrado en la barra entera, no en lo que sobra entre el icono y los
-         controles de la ventana.
+         **Centrado en el hueco que queda**, no en la ventana entera. Va en el
+         contenido de la barra —la única ranura que crece— con `m-auto`, que en
+         un contenedor flexible reparte lo que sobra a los dos lados. Estaba en
+         `centro`, que centra respecto de la ventana: con el icono de un lado y
+         el estado, el botón de actualizar y los tres controles del otro, el
+         medio de la ventana no es el medio del hueco, y el campo quedaba
+         corrido a la derecha con la mitad izquierda de la barra vacía.
+
+         `m-auto` y no `mx-auto` porque la barra también puede ir a un costado:
+         ahí el eje del hueco es el vertical, y el margen automático en los dos
+         ejes centra en el que corresponda sin preguntar cuál es.
 
          Es el `BarSearch` de la librería, que resuelve el único caso donde
          «siempre a la vista» no se puede cumplir: con la barra a un costado hay
          cuarenta y ocho píxeles de ancho y un campo de texto ahí no se lee ni
          se escribe. Ahí queda la lupa y el campo se abre al lado de la barra. -->
-    <template #barraCentro>
-      <div class="relative">
+    <template #barra>
+      <div class="m-auto flex items-center gap-2">
         <BarSearch
           v-model="consulta"
           :placeholder="t('lista.buscar')"
@@ -81,12 +90,13 @@ onMounted(cargar);
         <!-- Cuántos hay, que con una búsqueda escrita es cuántos coinciden. Es
              la única respuesta que da el buscador cuando no encuentra nada.
 
-             **Colgado del campo y no al lado**: contando para el centrado, el
-             buscador se corre a la izquierda, y además se movería solo al pasar
-             de «9 contactos» a «124 contactos». Así el campo queda centrado en
-             la barra y el número no lo toca. -->
+             Al lado del campo y contando para el centrado: lo que se ve como
+             una sola cosa es «campo más número», y centrar sólo el campo deja
+             al conjunto corrido. Con el ancho mínimo, pasar de «9 contactos» a
+             «124 contactos» no mueve el campo; sin él, cada dígito lo corría
+             medio carácter, que es por lo que este número colgaba aparte. -->
         <span
-          class="pointer-events-none absolute top-1/2 left-full ml-2 -translate-y-1/2 whitespace-nowrap text-tx-muted text-xs"
+          class="min-w-24 whitespace-nowrap text-tx-muted text-xs tabular-nums"
           aria-live="polite">{{ cuantos }}</span>
       </div>
     </template>
