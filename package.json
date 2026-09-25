@@ -22,7 +22,7 @@
     "@vasakgroup/plugin-vsk-contextual-menu": "^2.0.2",
     "@vasakgroup/plugin-vsk-journal": "^2.0.0",
     "@vasakgroup/tauri-plugin-i18n": "^2.3.0",
-    "@vasakgroup/vue-libvasak": "^1.4.0",
+    "@vasakgroup/vue-libvasak": "^1.9.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.43"
   },
@@ -31,7 +31,7 @@
     "@happy-dom/global-registrator": "^20.14.5",
     "@tauri-apps/cli": "^2.11.5",
     "@types/bun": "^1.4.2",
-    "@types/node": "^25.9.5",
+    "@types/node": "^25.9.8",
     "@vitejs/plugin-vue": "^6.0.9",
     "@vue/test-utils": "^2.5.1",
     "happy-dom": "^20.14.5",
