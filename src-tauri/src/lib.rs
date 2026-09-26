@@ -6,6 +6,7 @@
 mod carddav;
 mod comandos;
 mod cuentas;
+mod dav;
 mod locales;
 mod vcard;
 mod ventana;
