@@ -97,51 +97,84 @@ pub struct Contacto {
 /// acoplamiento de más, es cómo está definido el formato. Y por eso el `=` no
 /// junta líneas por sí solo — el base64 de una foto termina en `=` y se comería
 /// la propiedad siguiente.
+/// **Si una línea es `quoted-printable` se decide una sola vez**, cuando aparece
+/// su primer dos puntos: lo de antes no cambia por más que se le peguen
+/// continuaciones. Mirarlo de nuevo en cada una hacía que una tarjeta de medio
+/// mega —los parámetros largos y miles de continuaciones— tardara **casi medio
+/// minuto**: `ultima` crece, y `quedo_a_medias(&ultima)` volvía a pasar a
+/// minúsculas todo lo acumulado. Un solo `to_ascii_lowercase` de la mitad de
+/// una tarjeta, repetido por cada una de sus miles de líneas, es un tiempo que
+/// crece como el cuadrado del tamaño.
 pub fn unir_lineas(texto: &str) -> Vec<String> {
     let mut lineas: Vec<String> = Vec::new();
-    let mut sigue_imprimible = false;
+    // De la última línea: hasta dónde se buscaron los dos puntos, y si ya
+    // aparecieron, si el valor va en `quoted-printable`.
+    let mut buscado = 0;
+    let mut imprimible: Option<bool> = None;
 
     for cruda in texto.split('\n') {
         let linea = cruda.strip_suffix('\r').unwrap_or(cruda);
 
         // Continuación de la 2.1: se le saca el `=` que anunciaba que seguía y
-        // se pega lo que vino, sin mirar con qué empieza.
+        // se pega lo que vino, sin mirar con qué empieza. Que termine en `=` es
+        // un `ends_with`, que es constante: acá está la linealidad.
+        let sigue_imprimible =
+            imprimible == Some(true) && lineas.last().is_some_and(|ultima| ultima.ends_with('='));
+
         if sigue_imprimible {
             if let Some(ultima) = lineas.last_mut() {
                 ultima.pop();
                 ultima.push_str(linea);
-                sigue_imprimible = quedo_a_medias(ultima);
                 continue;
             }
         }
 
         match linea.strip_prefix([' ', '\t']) {
+            // Una **continuación de la 3.0 y la 4.0** —la línea partida a 75
+            // octetos— no reinicia nada: es la misma línea lógica, y lo que se
+            // decidió de sus primeros fragmentos sigue valiendo. Por eso
+            // `buscado` existe, y por eso la búsqueda no se vuelve a hacer.
             Some(continuacion) => match lineas.last_mut() {
                 Some(ultima) => ultima.push_str(continuacion),
-                None => lineas.push(continuacion.to_string()),
+                // Sin línea anterior no hay a qué pegarse: esta es la primera.
+                None => {
+                    lineas.push(continuacion.to_string());
+                    (buscado, imprimible) = (0, None);
+                }
             },
-            None => lineas.push(linea.to_string()),
+            // Una línea nueva **siempre** vuelve a empezar la búsqueda: lo que se
+            // decidiera sobre la anterior no dice nada sobre esta. Sin esto, el
+            // `Some(false)` de una línea que no era `quoted-printable` se corría a
+            // la siguiente y la búsqueda ni se hacía: una 2.1 con una línea
+            // cualquiera antes se leía con el `=` pegado al final.
+            None => {
+                lineas.push(linea.to_string());
+                (buscado, imprimible) = (0, None);
+            }
         }
 
-        sigue_imprimible = lineas.last().is_some_and(|l| quedo_a_medias(l));
+        if let Some(ultima) = lineas.last() {
+            // Sólo lo que todavía no se miró: `buscado` es el largo de lo que ya
+            // se recorrió, así que el `to_ascii_lowercase` es sobre los
+            // **parámetros** de la línea, que son cortos, y no sobre la línea
+            // entera.
+            match ultima[buscado..].find(':') {
+                Some(at) => imprimible = Some(es_imprimible(&ultima[..buscado + at])),
+                None => buscado = ultima.len(),
+            }
+        }
     }
 
     lineas
 }
 
-/// Si una línea es un `quoted-printable` que sigue en la siguiente.
+/// Si los parámetros de una línea —lo que está antes de sus primeros dos
+/// puntos— dicen que el valor va en `quoted-printable`.
 ///
-/// Las dos condiciones juntas: que el valor esté en `quoted-printable` **y** que
-/// termine en `=`. Con una sola no alcanza — el base64 de una foto termina en
-/// `=` y no sigue, y un valor en `quoted-printable` que termina donde termina
-/// tampoco.
-fn quedo_a_medias(linea: &str) -> bool {
-    if !linea.ends_with('=') {
-        return false;
-    }
-    let Some((izquierda, _)) = linea.split_once(':') else {
-        return false;
-    };
+/// Con eso no alcanza para juntar: además el valor tiene que terminar en `=`. El
+/// base64 de una foto termina en `=` y no sigue, y un valor en
+/// `quoted-printable` que termina donde termina tampoco.
+fn es_imprimible(izquierda: &str) -> bool {
     izquierda
         .to_ascii_lowercase()
         .replace(' ', "")
@@ -183,7 +216,11 @@ pub fn partir(linea: &str) -> Option<Propiedad> {
     let mut partes = izquierda.split(';');
     let crudo = partes.next()?.trim();
     // El grupo va antes de un punto. `X-ABLabel` de Apple viene así.
-    let nombre = crudo.rsplit('.').next().unwrap_or(crudo).to_ascii_uppercase();
+    let nombre = crudo
+        .rsplit('.')
+        .next()
+        .unwrap_or(crudo)
+        .to_ascii_uppercase();
 
     Some(Propiedad {
         nombre,
@@ -345,21 +382,22 @@ pub fn decodificado(propiedad: &Propiedad) -> String {
     let declarado = juego_de(propiedad);
     let imprimible = tiene("encoding=quoted-printable") || tiene("quoted-printable");
 
-    // Sin nada declarado y sin codificar, el valor ya es texto: es el caso de
-    // la 3.0 y la 4.0, que es casi todo.
-    if !imprimible && declarado.is_none() {
+    // Sin `quoted-printable`, el valor ya es texto, y declare lo que declare: la
+    // tarjeta llegó como `String` —el cuerpo de la respuesta pasó a UTF-8 antes
+    // de leer el XML—, así que sus bytes son UTF-8 y no los del juego declarado.
+    //
+    // **Volver a decodificarlos con el juego declarado los rompía.** Con
+    // `!imprimible && declarado.is_some()` se hacía, y una tarjeta 3.0 o 4.0
+    // —que declara `CHARSET=UTF-8` a veces, y siempre viene ya en texto—
+    // pasaba dos veces por el mismo paso: `Łukasz` salía «Ĺ», un control
+    // invisible y «ukasz». El juego declarado sólo describe los bytes que salen
+    // de **deshacer el `quoted-printable`**, y a ésos se les aplica y a ésos
+    // nada más.
+    if !imprimible {
         return propiedad.valor.clone();
     }
 
-    let bytes = if imprimible {
-        imprimible_de(&propiedad.valor)
-    } else {
-        // Ya vino como texto, pero declarando otro juego: los bytes originales
-        // se recuperan del texto tal como llegó.
-        propiedad.valor.as_bytes().to_vec()
-    };
-
-    a_texto(&bytes, declarado)
+    a_texto(&imprimible_de(&propiedad.valor), declarado)
 }
 
 /// Pasa bytes a texto según el juego que declaró la tarjeta.
@@ -471,8 +509,18 @@ pub fn contacto_de(crudo: &str, url: &str) -> Option<Contacto> {
 /// válidos como los de minúscula, y los escriben los exportadores de verdad.
 /// Dejarlos pegados hace que el botón de escribir abra «mailto:MailTo:…» y que
 /// el de llamar reciba algo que no es un número.
+/// Saca el prefijo si está.
+///
+/// El `is_char_boundary` **no es opcional**: `&valor[..esquema.len()]` corta en
+/// un índice de byte, y con un valor que tenga un carácter multibyte antes del
+/// esquema —un contacto con el nombre `日本:mailto:…`, o un teléfono con un
+/// emoji— ese corte cae en medio de un carácter y **entra en pánico**. Un
+/// `mailto:` de otro mundo, de un solo byte, hace que reviente.
 fn sin_esquema<'a>(valor: &'a str, esquema: &str) -> &'a str {
-    if valor.len() >= esquema.len() && valor[..esquema.len()].eq_ignore_ascii_case(esquema) {
+    if valor.len() >= esquema.len()
+        && valor.is_char_boundary(esquema.len())
+        && valor[..esquema.len()].eq_ignore_ascii_case(esquema)
+    {
         return &valor[esquema.len()..];
     }
     valor
@@ -625,7 +673,11 @@ mod tests {
 
         let c = contacto_de(vieja, "").unwrap();
         assert_eq!(c.nombre, "Ana María Pérez");
-        assert!(!c.nombre.contains('='), "quedó el signo de igual: {}", c.nombre);
+        assert!(
+            !c.nombre.contains('='),
+            "quedó el signo de igual: {}",
+            c.nombre
+        );
     }
 
     /// Y con varias continuaciones seguidas, que es lo que pasa con un valor de
@@ -811,7 +863,10 @@ mod tests {
     #[test]
     fn sin_fn_el_nombre_se_arma_con_el_n() {
         let sin_fn = "BEGIN:VCARD\r\nN:Pérez;Ana;María;Sra.;\r\nEND:VCARD";
-        assert_eq!(contacto_de(sin_fn, "").unwrap().nombre, "Sra. Ana María Pérez");
+        assert_eq!(
+            contacto_de(sin_fn, "").unwrap().nombre,
+            "Sra. Ana María Pérez"
+        );
     }
 
     /// Ordenar por el nombre que se muestra pone a todas las Anas juntas y a
@@ -832,7 +887,10 @@ mod tests {
     /// Soporte» son cosas distintas.
     #[test]
     fn la_organizacion_incluye_la_division() {
-        assert_eq!(contacto_de(ANA, "").unwrap().organizacion, "Vasak Group, Soporte");
+        assert_eq!(
+            contacto_de(ANA, "").unwrap().organizacion,
+            "Vasak Group, Soporte"
+        );
     }
 
     // ── Lo que llega roto ──────────────────────────────────────────────────
@@ -850,7 +908,15 @@ mod tests {
     /// teléfono: no es contenido de confianza por estar en la libreta.
     #[test]
     fn lo_que_esta_roto_no_hace_caer_nada() {
-        for basura in [":::", "FN:", ";;;", "BEGIN:VCARD", "\r\n\r\n", "\\", "N:;;;;;;;;;;"] {
+        for basura in [
+            ":::",
+            "FN:",
+            ";;;",
+            "BEGIN:VCARD",
+            "\r\n\r\n",
+            "\\",
+            "N:;;;;;;;;;;",
+        ] {
             let _ = contacto_de(basura, "");
             let _ = tarjetas_de(basura);
         }
@@ -901,5 +967,166 @@ mod tests {
         let tarjetas = tarjetas_de(sin_cierre);
         assert_eq!(tarjetas.len(), 1);
         assert_eq!(contacto_de(&tarjetas[0], "").unwrap().nombre, "Ana");
+    }
+
+    // ── Lo que el servidor puede usar para tumbar la aplicación ─────────────
+
+    /// Corre `work` en otro hilo y falla si no termina en `budget`. Sin esto,
+    /// una prueba de tiempo sin el arreglo no falla: se cuelga y el rojo nunca
+    /// aparece.
+    fn finishes_within<T: Send + 'static>(
+        budget: std::time::Duration,
+        work: impl FnOnce() -> T + Send + 'static,
+    ) -> T {
+        let (done, wait) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = done.send(work());
+        });
+        wait.recv_timeout(budget)
+            .unwrap_or_else(|_| panic!("no terminó en {budget:?}"))
+    }
+
+    /// **Una tarjeta armada para el desdoblado no tarda.** Doscientos sesenta
+    /// mil bytes de parámetros y ochenta y cinco mil continuaciones de
+    /// `quoted-printable` entran en el tope de una tarjeta, y mirar los
+    /// parámetros de nuevo en cada continuación eran **veintisiete segundos** por
+    /// tarjeta en el caso medido: `ultima` crecía, y `quedo_a_medias` pasaba a
+    /// minúsculas y volvía a copiar todo lo acumulado, una vez por línea. El
+    /// tiempo crece como el cuadrado del tamaño de la tarjeta.
+    ///
+    /// La decisión se toma una vez, cuando aparece el primer dos puntos, y a
+    /// partir de ahí seguir es un `ends_with`, que es constante. El valor sale
+    /// entero, y la propiedad que sigue también: no se la comió.
+    #[test]
+    fn una_tarjeta_armada_para_el_desdoblado_no_tarda() {
+        let continuations = 85_000;
+        let tarjeta = format!(
+            "BEGIN:VCARD\nFN:Ana\nNOTE;ENCODING=QUOTED-PRINTABLE;{}:{}fin\nEMAIL:ana@x.com\nEND:VCARD\n",
+            "A".repeat(262_000),
+            "x=\n".repeat(continuations)
+        );
+        assert!(tarjeta.len() <= 512 * 1024, "{}", tarjeta.len());
+
+        let (lineas, contacto) = finishes_within(std::time::Duration::from_secs(5), move || {
+            let lineas = unir_lineas(&tarjeta);
+            let primera = tarjetas_de(&tarjeta).into_iter().next().unwrap();
+            (lineas, contacto_de(&primera, "").unwrap())
+        });
+
+        let nota = lineas.iter().find(|l| l.starts_with("NOTE;")).unwrap();
+        let valor = nota.split_once(':').unwrap().1;
+        assert_eq!(valor.len(), continuations + 3);
+        assert!(valor.ends_with("xfin"), "{}", &valor[valor.len() - 10..]);
+        assert_eq!(contacto.nombre, "Ana");
+        assert_eq!(contacto.correos[0].valor, "ana@x.com");
+        assert!(contacto.notas.starts_with("xxx"));
+    }
+
+    /// **El `CHARSET` se aplica una sola vez.** El cuerpo de la respuesta pasó a
+    /// UTF-8 antes de leer el XML, así que los bytes de un valor que vino como
+    /// texto **son UTF-8**, y volver a decodificarlos con el juego declarado
+    /// rompe lo que ya estaba bien.
+    ///
+    /// Antes: `FN;CHARSET=ISO-8859-2:Łukasz` salía «Ĺ», un control invisible y
+    /// «ukasz», y el contacto se ordenaba por esa basura. Es el mismo camino que
+    /// una tarjeta exportada por un teléfono polaco tomaba siempre.
+    #[test]
+    fn un_charset_declarado_no_se_aplica_dos_veces() {
+        for declarada in [
+            "FN;CHARSET=ISO-8859-2:Łukasz",
+            "FN;CHARSET=UTF-8:Łukasz",
+            "FN;CHARSET=WINDOWS-1252:Ana Pérez",
+            // Y en una propiedad con más de una parte, que es donde más se nota.
+            "N;CHARSET=UTF-8:Pérez;Łukasz;;;",
+        ] {
+            let tarjeta = format!("BEGIN:VCARD\r\nVERSION:3.0\r\n{declarada}\r\nEND:VCARD");
+            let c = contacto_de(&tarjeta, "").unwrap();
+            assert!(
+                !c.nombre.contains('\u{0081}'),
+                "{} → {:?}",
+                declarada,
+                c.nombre
+            );
+        }
+
+        let tarjeta = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN;CHARSET=ISO-8859-2:Łukasz\r\nEND:VCARD";
+        assert_eq!(contacto_de(tarjeta, "").unwrap().nombre, "Łukasz");
+    }
+
+    /// Y el camino del `quoted-printable`, que **sí** necesita el juego declarado:
+    /// los bytes que salen de deshacer el escape son los del juego que la tarjeta
+    /// dice, y no UTF-8.
+    #[test]
+    fn el_charset_sirve_para_lo_que_sale_del_quoted_printable() {
+        // 2.1 en latin-1: `P` + 0xE9 + `rez` = «Pérez» con la e acentuada en
+        // un byte, que no es UTF-8 válido. Sin el juego declarado, ese 0xE9
+        // sería un rombo.
+        let tarjeta = concat!(
+            "BEGIN:VCARD\r\nVERSION:2.1\r\n",
+            "FN;CHARSET=ISO-8859-1;ENCODING=QUOTED-PRINTABLE:P=E9rez\r\n",
+            "END:VCARD"
+        );
+        let lineas = unir_lineas(tarjeta);
+        let propiedad = partir(lineas.iter().find(|l| l.starts_with("FN")).unwrap()).unwrap();
+        assert_eq!(decodificado(&propiedad), "Pérez");
+        assert_eq!(contacto_de(tarjeta, "").unwrap().nombre, "Pérez");
+    }
+
+    /// **`sin_esquema` no entra en pánico con un valor multibyte.** Cortaba el
+    /// texto en un índice de byte sin mirar si era un límite de carácter, así que
+    /// un correo o un teléfono con un multibyte antes del esquema —`日本:…`,
+    /// `😀mailto:…`— lo hacía reventar. Y lo reventaba en depuración, no en la
+    /// aplicación de la persona: un pánico en `debug`.
+    #[test]
+    fn un_valor_con_multibyte_antes_del_esquema_no_entra_en_panico() {
+        for valor in [
+            "mailto:ana@ejemplo.com",
+            "MAILTO:ana@ejemplo.com",
+            // Un emoji es de cuatro bytes y el `mailto:` no cae en un límite de
+            // carácter: el corte del `&valor[..7]` caía adentro.
+            "😀mailto:ana@ejemplo.com",
+            "😀😀mailto:ana@ejemplo.com",
+            "日本:mailto:ana@ejemplo.com",
+            "ñmailto:ana@ejemplo.com",
+            // Más corto que el esquema, y con el prefijo de largo刚好.
+            "m",
+            "mailto",
+            "",
+            "tel:+541155550000",
+        ] {
+            // `sin_esquema` es privada; el camino que la lleva es el del `EMAIL`
+            // y el del `TEL`. Con `catch_unwind` porque el defecto viejo es
+            // justamente un pánico, y un pánico tumba el archivo de pruebas
+            // entero sin dejar aserción.
+            let tarjeta =
+                format!("BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ana\r\nEMAIL:{valor}\r\nEND:VCARD");
+            let resultado = std::panic::catch_unwind(move || {
+                let c = contacto_de(&tarjeta, "");
+                c.map(|c| c.correos.first().map(|d| d.valor.clone()))
+            });
+            // El resultado es el de siempre —el esquema se saca cuando está al
+            // principio—; lo que se comprueba es que se llegue.
+            match resultado {
+                Ok(Some(Some(guardado))) => {
+                    let esperado = valor
+                        .strip_prefix("mailto:")
+                        .or_else(|| valor.strip_prefix("MAILTO:"))
+                        .unwrap_or(valor);
+                    assert_eq!(guardado, esperado, "entrante {valor:?}");
+                }
+                Ok(_) => {}
+                Err(_) => panic!("{valor:?} entró en pánico"),
+            }
+        }
+    }
+
+    /// Y un `EMAIL` con un multibyte adelante conserva el valor entero: no se
+    /// come ni el prefijo equivocado ni el carácter.
+    #[test]
+    fn un_email_con_multibyte_no_se_altera() {
+        let tarjeta =
+            "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ana\r\nEMAIL:😀mailto:ana@ejemplo.com\r\nEND:VCARD";
+        let c = contacto_de(tarjeta, "").unwrap();
+        assert_eq!(c.correos[0].valor, "😀mailto:ana@ejemplo.com");
     }
 }
