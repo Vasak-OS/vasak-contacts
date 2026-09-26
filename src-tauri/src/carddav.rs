@@ -304,8 +304,19 @@ pub async fn contactos(
         return Err(DavError::ForeignOrigin.to_string());
     }
 
+    // El `href` de cada tarjeta se resuelve contra **la colección que se
+    // pidió**, no contra la de la cuenta. Los servidores contestan con una ruta
+    // absoluta casi siempre, pero un `href` relativo —`ana.vcf`, que aparece de
+    // vez en cuando— resuelve contra la base: contra la de la cuenta daba
+    // `https://host/dav/ana.vcf` en vez de
+    // `https://host/dav/addressbooks/.../personal/ana.vcf`, y `Contacto.url`
+    // existe justamente para volver a buscar la tarjeta, así que después no la
+    // encontraba.
+    //
+    // El control de origen no cambia: `pedido` ya pasó por `resolve_href` contra
+    // `home`, así que su origen es el de la cuenta.
     let respuesta = cliente()?
-        .request(metodo("REPORT"), pedido)
+        .request(metodo("REPORT"), pedido.clone())
         .header("Authorization", cabecera_de(credencial))
         // 1: las tarjetas de esta libreta. El estándar lo pide, y hay
         // servidores que sin esto devuelven vacío.
@@ -317,7 +328,7 @@ pub async fn contactos(
         .map_err(|e| DavError::network(e.without_url()).to_string())?;
 
     let xml = cuerpo_con_tope(respuesta).await?;
-    let tarjetas = dav::off_runtime(move || tarjetas_de(&xml, &home))
+    let tarjetas = dav::off_runtime(move || tarjetas_de(&xml, &pedido))
         .await
         .map_err(|e| e.to_string())?;
 
@@ -456,6 +467,73 @@ mod tests {
         }
     }
 
+    /// **Un `href` relativo se resuelve contra la libreta, no contra la cuenta.**
+    ///
+    /// Es el arreglo del hallazgo de revisión: `contactos()` pedía la `REPORT` a
+    /// la libreta pero resolvía los `href` contra `home`, así que un `ana.vcf`
+    /// relativo —que los servidores mandan de vez en cuando— quedaba en
+    /// `https://host/dav/ana.vcf`. Y `Contacto.url` existe para volver a buscar
+    /// la tarjeta, así que después no la encontraba.
+    ///
+    /// Todos los fixtures de acá usan un `href` **absoluto**, y contra cualquier
+    /// base del mismo origen dan lo mismo: por eso el test anterior no lo veía, y
+    /// por eso éste usa un relativo, que es el único caso donde la base importa.
+    #[test]
+    fn un_href_relativo_se_resuelve_contra_la_libreta() {
+        let tarjetas = tarjetas_de(
+            TARJETA_CON_HREF_RELATIVO,
+            &Url::parse("https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/").unwrap(),
+        )
+        .unwrap();
+
+        assert_eq!(tarjetas.len(), 1);
+        assert_eq!(
+            tarjetas[0].0, "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/ana.vcf",
+            "el href relativo se resolvió contra otra base",
+        );
+    }
+
+    /// **El camino de `contactos` completo, menos la red.**
+    ///
+    /// La prueba anterior llama a `tarjetas_de` con la base escrita a mano, así
+    /// que pasa siempre, se haya arreglado el bug o no: el error estaba en **qué
+    /// base le pasa `contactos`**, no en `tarjetas_de`. Esta replica las dos
+    /// líneas de `contactos` —resolver la libreta contra `home` y usar **esa**
+    /// `Url` como base— a propósito, y por eso falla si la regla vuelve a ser la
+    /// otra. Contra la base de la cuenta el mismo `href` da otra dirección, que
+    /// es justo lo que había que arreglar.
+    ///
+    /// Lo que queda sin cubrir, y conviene decirlo: que `contactos()` pase esa
+    /// `Url` y no otra. Eso no se puede probar sin levantar un servidor, y esta
+    /// aplicación no tiene la excepción de `127.0.0.1` en claro que sí tiene
+    /// `vasak-accounts` en sus pruebas. Queda fijado por lectura, y es la razón
+    /// de que el arreglo sea una línea.
+    #[test]
+    fn el_camino_de_contactos_resuelve_el_relativo_contra_la_libreta() {
+        let home = Url::parse("https://nube.ejemplo.com/dav/").unwrap();
+        // Lo que hace `contactos`: resolver la libreta que le pidieron.
+        let pedido = dav::resolve_href(
+            &home,
+            "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/",
+        )
+        .unwrap();
+        assert_eq!(pedido.origin(), home.origin());
+
+        // Y usarla como base de la respuesta.
+        let tarjetas = tarjetas_de(TARJETA_CON_HREF_RELATIVO, &pedido).unwrap();
+        assert_eq!(
+            tarjetas[0].0,
+            "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/ana.vcf",
+        );
+
+        // Contra la de la cuenta daba otra cosa.
+        let con_base_de_cuenta = tarjetas_de(TARJETA_CON_HREF_RELATIVO, &home).unwrap();
+        assert_eq!(
+            con_base_de_cuenta[0].0,
+            "https://nube.ejemplo.com/dav/ana.vcf"
+        );
+    }
+
     /// Y lo mismo con las tarjetas: una de otro origen se descartaría, porque
     /// `contactos()` la pediría con la credencial de la cuenta. Antes además se
     /// guardaba con la dirección **vacía** si el `href` no se podía resolver,
@@ -486,6 +564,20 @@ VERSION:3.0
 FN:Ana Pérez
 N:Pérez;Ana;;;
 EMAIL:ana@ejemplo.com
+END:VCARD
+</c:address-data></d:prop></d:propstat>
+  </d:response>
+</d:multistatus>"#;
+
+    /// La misma respuesta con el `href` **relativo**, que es la forma que los
+    /// servidores mandan de vez en cuando y la única donde la base importa.
+    const TARJETA_CON_HREF_RELATIVO: &str = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>ana.vcf</d:href>
+    <d:propstat><d:prop><c:address-data>BEGIN:VCARD
+VERSION:3.0
+FN:Ana Pérez
 END:VCARD
 </c:address-data></d:prop></d:propstat>
   </d:response>
