@@ -156,18 +156,40 @@ pub fn unir_lineas(texto: &str) -> Vec<String> {
             }
         }
 
-        if let Some(ultima) = lineas.last() {
-            // Sólo lo que todavía no se miró: `buscado` es el largo de lo que ya
-            // se recorrió, así que el `to_ascii_lowercase` es sobre los
-            // **parámetros** de la línea, que son cortos, y no sobre la línea
-            // entera. Y `coma` viaja de fragmento en fragmento, porque una
-            // comilla puede abrirse en uno y cerrarse en el siguiente.
-            let (at, sigue_abierta) = separador(ultima, buscado, coma);
-            match at {
-                Some(at) => imprimible = Some(es_imprimible(&ultima[..at])),
-                None => buscado = ultima.len(),
+        // **Una vez que el separador se encontró, no se busca más.**
+        //
+        // `imprimible` es el estado de la línea *lógica*: cuando se decidió, se
+        // decidió, y volver a mirar los parámetros no puede cambiarlo. Y mirar
+        // los parámetros es lo caro —`es_imprimible` pasa a minúsculas y copia
+        // los `prefijos`—, así que repetirlo en cada continuación es un tiempo
+        // que crece como el **cuadrado del tamaño de la línea**: el mismo
+        // defecto que este juntador vino a eliminar, abierto otra vez en la misma
+        // función. Con 256 KiB de parámetros y cien mil continuaciones de la
+        // 3.0 son 25 GB de copia por tarjeta.
+        //
+        // El guard también deja `buscado` y `coma` consistentes entre sí, que es
+        // lo que hace que `coma` tenga que quedar pegado al `buscado`: `coma` es
+        // el estado de las comillas **en `buscado`**, y cuando se encuentra el
+        // `:` `buscado` no avanza, así que `coma = false` describía otra posición.
+        // Sin búsqueda no hay dos estados que se puedan desincronizar.
+        //
+        // Lo que sí tiene que seguir buscando es la línea que **todavía no
+        // encontró** su separador: `imprimible` sigue en `None` y `buscado` quedó
+        // en el final del fragmento anterior, así que la continuación siguiente
+        // mira desde ahí. Eso es lineal, y es el caso que prueba
+        // `una_linea_sin_separador_sigue_buscando`.
+        if imprimible.is_none() {
+            if let Some(ultima) = lineas.last() {
+                // Sólo lo que todavía no se miró, y `coma` viaja de fragmento en
+                // fragmento porque una comilla puede abrirse en uno y cerrarse en
+                // el siguiente.
+                let (at, sigue_abierta) = separador(ultima, buscado, coma);
+                match at {
+                    Some(at) => imprimible = Some(es_imprimible(&ultima[..at])),
+                    None => buscado = ultima.len(),
+                }
+                coma = sigue_abierta;
             }
-            coma = sigue_abierta;
         }
     }
 
@@ -1159,6 +1181,124 @@ mod tests {
         });
         wait.recv_timeout(budget)
             .unwrap_or_else(|_| panic!("no terminó en {budget:?}"))
+    }
+
+    /// **Una tarjeta con continuaciones de la 3.0 tampoco tarda.**
+    ///
+    /// El caso del hallazgo de revisión, y es el mismo defecto que el de las
+    /// continuaciones 2.1: al encontrar el separador, `imprimible` ya estaba
+    /// decidido pero el bloque de búsqueda se volvía a ejecutar en cada
+    /// continuación, con `es_imprimible` pasando a minúsculas y copiando los
+    /// **parámetros** enteros una vez por línea. Con P bytes de parámetros y N
+    /// continuaciones, el trabajo es P·N.
+    ///
+    /// Estas continuaciones llevan un espacio adelante, así que entran por el
+    /// brazo `Some(continuacion)` y **no** salen por el `continue` de la 2.1: es
+    /// un camino que las pruebas anteriores no tocaban.
+    ///
+    /// Medido con el mismo caso, en release:
+    ///
+    /// ```text
+    ///    params     cont          viejo         nuevo    ratio
+    ///     16384    10000       126.67ms      104.47µs    1212x
+    ///     65536    40000          2.04s      404.47µs    5048x
+    ///    131072    60000          6.13s      640.86µs    9561x
+    /// ```
+    ///
+    /// Los tres entran en el tope de 512 KiB. El último es el de la prueba: sin
+    /// el arreglo se pasa del presupuesto de cinco segundos.
+    #[test]
+    fn una_tarjeta_con_continuaciones_de_la_30_no_tarda() {
+        let continuaciones = 60_000;
+        // Cada plegado va en su propia línea física, como en un archivo de
+        // verdad: el primero no es el que está pegado al `:`.
+        let tarjeta = format!(
+            "BEGIN:VCARD\nFN:Ana\nNOTE;ENCODING=QUOTED-PRINTABLE;{}:\n{}EMAIL:ana@x.com\nEND:VCARD\n",
+            "A".repeat(131_072),
+            " x\n".repeat(continuaciones),
+        );
+        assert!(tarjeta.len() <= 512 * 1024, "{}", tarjeta.len());
+
+        let (lineas, contacto) = finishes_within(std::time::Duration::from_secs(5), move || {
+            let lineas = unir_lineas(&tarjeta);
+            let primera = tarjetas_de(&tarjeta).into_iter().next().unwrap();
+            (lineas, contacto_de(&primera, "").unwrap())
+        });
+
+        // Y no es que se haya hecho todo mal: la línea juntada tiene que estar
+        // entera, y la propiedad que sigue no se comió.
+        let nota = lineas.iter().find(|l| l.starts_with("NOTE;")).unwrap();
+        let valor = nota.split_once(':').unwrap().1;
+        assert_eq!(
+            valor.len(),
+            continuaciones,
+            "valor de {} bytes",
+            valor.len()
+        );
+        assert!(
+            !valor.contains(' '),
+            "el plegado tiene que sacar los espacios"
+        );
+        assert_eq!(contacto.nombre, "Ana");
+        assert_eq!(contacto.correos[0].valor, "ana@x.com");
+    }
+
+    /// **Una línea sin separador tiene que seguir buscándolo.**
+    ///
+    /// Es el caso que un guard mal puesto rompe: si `imprimible` decidiera
+    /// demasiado pronto, esta línea se declararía «no imprimible» con sólo el
+    /// primer fragmento y las continuaciones siguientes no se mirarían. Aquí el
+    /// separador **no aparece hasta el segundo fragmento**, y la continuación
+    /// 2.1 que sigue tiene que juntarse igual.
+    #[test]
+    fn una_linea_sin_separador_sigue_buscando_al_agregarse_un_fragmento() {
+        // Ni `NOTA` ni `;P=1` traen `=`, así que el juntador no puede joins
+        // por el camino de la 2.1: lo tiene que hacer por el del separador.
+        let vieja = concat!(
+            "BEGIN:VCARD\r\nVERSION:2.1\r\n",
+            "NOTE;ENCODING=QUOTED-PRINTABLE\r\n",
+            " ;P=1:Ana=\r\n",
+            "Maria\r\n",
+            "FN:Ana\r\n",
+            "END:VCARD"
+        );
+        let c = contacto_de(vieja, "").expect("la tarjeta tiene contacto");
+        assert!(
+            !c.notas.contains('='),
+            "la línea no se juntó y quedó el signo de igual: {:?}",
+            c.notas,
+        );
+        assert!(c.notas.contains("AnaMaria"), "{:?}", c.notas);
+    }
+
+    /// Una comilla abierta en los parámetros, con continuaciones de la 3.0
+    /// alrededor: el separador se busca una vez, en el fragmento que lo tiene, y
+    /// el resto de la línea lógica no lo vuelve a mover.
+    ///
+    /// La comilla abierta es lo que hace que `coma` tenga que viajar entre
+    /// fragmentos, y lo que hace que un `:` de adentro no sea el separador.
+    #[test]
+    fn una_comilla_abierta_entre_continuaciones_no_confunde_el_separador() {
+        let vieja = concat!(
+            "BEGIN:VCARD\r\nVERSION:2.1\r\n",
+            "FN;X=\"a:b\";ENCODING=QUOTED-PRINTABLE:Ana=\r\n",
+            " b\r\n",
+            " c\r\n",
+            " Maria\r\n",
+            "END:VCARD"
+        );
+        let c = contacto_de(vieja, "").unwrap();
+        // Lo que importa es que la línea se juntó entera y sin el `=` colgando.
+        // Los espacios depende de qué camino juntó cada fragmento —el de la 2.1
+        // se come el `=` y deja el espacio, el de la 3.0 los saca—, y eso es de
+        // antes de este arreglo.
+        assert!(
+            !c.nombre.contains('='),
+            "quedó el signo de igual: {:?}",
+            c.nombre
+        );
+        let sin_espacios: String = c.nombre.chars().filter(|c| !c.is_whitespace()).collect();
+        assert_eq!(sin_espacios, "AnabcMaria", "{:?}", c.nombre);
     }
 
     /// **Una tarjeta armada para el desdoblado no tarda.** Doscientos sesenta
