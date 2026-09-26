@@ -111,6 +111,9 @@ pub fn unir_lineas(texto: &str) -> Vec<String> {
     // aparecieron, si el valor va en `quoted-printable`.
     let mut buscado = 0;
     let mut imprimible: Option<bool> = None;
+    // Si al terminar el fragmento anterior había una comilla abierta: un
+    // parámetro partido a la mitad puede abrirla en uno y cerrarla en el otro.
+    let mut coma = false;
 
     for cruda in texto.split('\n') {
         let linea = cruda.strip_suffix('\r').unwrap_or(cruda);
@@ -139,7 +142,7 @@ pub fn unir_lineas(texto: &str) -> Vec<String> {
                 // Sin línea anterior no hay a qué pegarse: esta es la primera.
                 None => {
                     lineas.push(continuacion.to_string());
-                    (buscado, imprimible) = (0, None);
+                    (buscado, imprimible, coma) = (0, None, false);
                 }
             },
             // Una línea nueva **siempre** vuelve a empezar la búsqueda: lo que se
@@ -149,7 +152,7 @@ pub fn unir_lineas(texto: &str) -> Vec<String> {
             // cualquiera antes se leía con el `=` pegado al final.
             None => {
                 lineas.push(linea.to_string());
-                (buscado, imprimible) = (0, None);
+                (buscado, imprimible, coma) = (0, None, false);
             }
         }
 
@@ -157,15 +160,50 @@ pub fn unir_lineas(texto: &str) -> Vec<String> {
             // Sólo lo que todavía no se miró: `buscado` es el largo de lo que ya
             // se recorrió, así que el `to_ascii_lowercase` es sobre los
             // **parámetros** de la línea, que son cortos, y no sobre la línea
-            // entera.
-            match ultima[buscado..].find(':') {
-                Some(at) => imprimible = Some(es_imprimible(&ultima[..buscado + at])),
+            // entera. Y `coma` viaja de fragmento en fragmento, porque una
+            // comilla puede abrirse en uno y cerrarse en el siguiente.
+            let (at, sigue_abierta) = separador(ultima, buscado, coma);
+            match at {
+                Some(at) => imprimible = Some(es_imprimible(&ultima[..at])),
                 None => buscado = ultima.len(),
             }
+            coma = sigue_abierta;
         }
     }
 
     lineas
+}
+
+/// El primer `:` **fuera de comillas** desde `desde`, y si queda alguna abierta.
+///
+/// Un parámetro puede traer un valor con dos puntos adentro —`X-TEST="a:b"`, que
+/// es legal y lo exportan herramientas de verdad— y buscar a byte crudo se para
+/// en el de adentro: los parámetros quedan `FN;X-TEST="a`, que no dicen
+/// `quoted-printable`, la línea no se junta, y el valor queda con el `=` pegado
+/// al final.
+///
+/// **Sólo las comillas dobles cuentan**, y es a propósito: es lo que hace
+/// [`partir`], y los dos tienen que cortar en el mismo punto o la línea junta y
+/// después se parte distinto. En vCard el valor de un parámetro se entrecomilla
+/// con `"`; un `'` es un carácter más del valor, y `X-TEST='a:b'` se parte en el
+/// `:` de adentro, como siempre se partió.
+///
+/// **Se escanea desde `desde` y no desde el principio.** Volver a recorrer lo
+/// anterior en cada fragmento es un tiempo que crece como el cuadrado del
+/// tamaño de la línea, que es justo lo que este juntador vino a arreglar.
+///
+/// El `bool` devuelto dice si quedó una comilla abierta: un parámetro partido a
+/// la mitad puede abrirla en un fragmento y cerrarla en el siguiente.
+fn separador(texto: &str, desde: usize, abierta: bool) -> (Option<usize>, bool) {
+    let mut dentro = abierta;
+    for (i, c) in texto[desde..].char_indices() {
+        match c {
+            '"' => dentro = !dentro,
+            ':' if !dentro => return (Some(desde + i), false),
+            _ => {}
+        }
+    }
+    (None, dentro)
 }
 
 /// Si los parámetros de una línea —lo que está antes de sus primeros dos
@@ -971,6 +1009,143 @@ mod tests {
 
     // ── Lo que el servidor puede usar para tumbar la aplicación ─────────────
 
+    /// **Un `:` dentro de las comillas de un parámetro no es el separador.**
+    ///
+    /// Buscarlo a byte crudo se paraba en el de adentro, así que los parámetros
+    /// quedaban en `FN;X-TEST="a`, que no dicen `quoted-printable`: la línea no
+    /// se juntaba y el nombre salía con el `=` pegado al final, `Ana=`.
+    /// `X-TEST="a:b"` es legal y lo exportan herramientas de verdad.
+    #[test]
+    fn un_dos_puntos_dentro_de_comillas_no_es_el_separador() {
+        let vieja = concat!(
+            "BEGIN:VCARD\r\nVERSION:2.1\r\n",
+            "FN;X-TEST=\"a:b\";ENCODING=QUOTED-PRINTABLE:Ana=\r\n",
+            "Maria\r\nEND:VCARD"
+        );
+
+        let c = contacto_de(vieja, "").unwrap();
+        assert_eq!(c.nombre, "AnaMaria", "quedó el signo de igual");
+        assert!(
+            !c.nombre.contains('='),
+            "quedó el signo de igual: {}",
+            c.nombre
+        );
+    }
+
+    /// Y un `ENCODING` de verdad, sin comillas antes, se sigue encontrando: el
+    /// arreglo no puede haber suntado el caso normal.
+    #[test]
+    fn un_encoding_normal_sigue_encontrandose() {
+        let vieja = concat!(
+            "BEGIN:VCARD\r\nVERSION:2.1\r\n",
+            "FN;ENCODING=QUOTED-PRINTABLE:Ana=\r\n",
+            "Maria\r\nEND:VCARD"
+        );
+        assert_eq!(contacto_de(vieja, "").unwrap().nombre, "AnaMaria");
+    }
+
+    /// Un `:` de verdad, después de los parámetros, se encuentra igual — con
+    /// comillas abiertas antes, sin comillas antes, y con comillas simples.
+    #[test]
+    fn un_dos_puntos_de_verdad_se_encuentra_igual() {
+        for (params, valor) in [
+            ("ENCODING=QUOTED-PRINTABLE", "Ana="),
+            ("X-TEST=\"a:b\";ENCODING=QUOTED-PRINTABLE", "Ana="),
+            (
+                "TYPE=\"a:b:c\";X-Y=\"d:e\";ENCODING=QUOTED-PRINTABLE",
+                "Ana=",
+            ),
+        ] {
+            let vieja =
+                format!("BEGIN:VCARD\r\nVERSION:2.1\r\nFN;{params}:{valor}\r\nMaria\r\nEND:VCARD");
+            let c = contacto_de(&vieja, "");
+            assert_eq!(
+                c.as_ref().map(|c| c.nombre.as_str()),
+                Some("AnaMaria"),
+                "{params}",
+            );
+        }
+    }
+
+    /// Una comilla que queda abierta **no inventa un separador**: ni el juntador
+    /// ni `partir` la ven, así que la línea no se parte por el `:` de adentro.
+    /// Malformado, pero no rompiendo, y sin colgar un `=` al final de un nombre.
+    ///
+    /// El desenlace se afirma, no se descarta: un `let _ =` acá haría que la
+    /// prueba pasara aunque `contacto_de` dejara de devolver un contacto.
+    #[test]
+    fn una_comilla_sin_cerrar_no_inventa_un_separador() {
+        let vieja = concat!(
+            "BEGIN:VCARD\r\nVERSION:2.1\r\n",
+            "FN;X-TEST=\"sin cerrar;ENCODING=QUOTED-PRINTABLE:Ana\r\n",
+            "END:VCARD"
+        );
+
+        // No hay separador, así que la línea no se parte: ni `partir` la ve…
+        let con_nombre = vieja.lines().find(|l| l.starts_with("FN")).unwrap();
+        assert!(partir(con_nombre).is_none(), "{con_nombre}");
+        // …ni el juntador inventa uno. Si encontraba alguno, tendría que ser
+        // después de los parámetros, y no lo hay.
+        let (at, _abierta) = separador(vieja, vieja.find('F').unwrap(), false);
+        assert!(at.is_none() || !vieja[..at.unwrap()].contains("ENCODING=QUOTED"));
+
+        // Y el contacto sale sin nombre, en vez de con un `=` pegado.
+        if let Some(c) = contacto_de(vieja, "") {
+            assert!(
+                !c.nombre.contains('='),
+                "quedó un signo de igual: {:?}",
+                c.nombre
+            );
+        }
+    }
+
+    /// El helper tiene que cortar **donde corta `partir`**, o la línea se junta
+    /// con un criterio y después se parte con otro. Esta prueba es esa
+    /// equivalencia, sobre los casos que importan: comillas dobles con dos
+    /// puntos adentro, y el `:` de verdad después de los parámetros.
+    #[test]
+    fn el_separador_corta_donde_corta_partir() {
+        for izquierda in [
+            "ENCODING=QUOTED-PRINTABLE",
+            "X-TEST=\"a:b\";ENCODING=QUOTED-PRINTABLE",
+            "TYPE=\"a:b:c\";X-Y=\"d:e\";ENCODING=QUOTED-PRINTABLE",
+            "TYPE=\"\";ENCODING=QUOTED-PRINTABLE",
+            "LANGUAGE=es;ENCODING=QUOTED-PRINTABLE",
+            // Sin comillas: el primer `:` de valor, que es el separador.
+            "ENCODING=QUOTED-PRINTABLE",
+        ] {
+            let linea = format!("FN;{izquierda}:Ana");
+            let por_partir = partir(&linea).expect("partir");
+            let (at, _abierta) = separador(&linea, 0, false);
+            // El punto de corte de `partir` se recupera del valor: es todo lo que
+            // queda después del `:`. Comparar contra `find(':')` no serviría,
+            // porque devuelve justo el que hay que ignorar.
+            let corte_de_partir = linea.len() - por_partir.valor.len() - 1;
+            assert_eq!(Some(corte_de_partir), at, "{izquierda}");
+            assert_eq!(por_partir.nombre, "FN", "{izquierda}");
+            assert_eq!(por_partir.valor, "Ana", "{izquierda}");
+        }
+    }
+
+    /// Y `desde` evita que se recorra lo anterior: la búsqueda sigue donde se le
+    /// dice, que es lo que hace lineal a esto.
+    #[test]
+    fn el_separador_empieza_donde_se_le_dice() {
+        let linea = "FN;X=\"a:b\";ENCODING=QP:Ana";
+        let (at, abierta) = separador(linea, 0, false);
+        assert_eq!(Some(22), at, "el separador no es el `:` de adentro");
+        assert!(!abierta);
+
+        // Desde un `desde` mayor, el mismo `:` de adentro ya no se ve.
+        let (at, _abierta) = separador(linea, 10, false);
+        assert_eq!(Some(22), at);
+
+        // Con la comilla ya abierta desde antes, el `:` no cuenta.
+        assert_eq!(separador(":despues", 0, true), (None, true));
+        // Y sin separador, se devuelve dónde quedó la búsqueda.
+        assert_eq!(separador("FN;ENCODING=QP", 0, false), (None, false));
+    }
+
     /// Corre `work` en otro hilo y falla si no termina en `budget`. Sin esto,
     /// una prueba de tiempo sin el arreglo no falla: se cuelga y el rojo nunca
     /// aparece.
@@ -1106,6 +1281,12 @@ mod tests {
             });
             // El resultado es el de siempre —el esquema se saca cuando está al
             // principio—; lo que se comprueba es que se llegue.
+            //
+            // **Cada desenlace se dice por su nombre.** Con un `Ok(_)` a secas,
+            // `Ok(Some(None))` —que es exactamente «el correo no está en la
+            // tarjeta»— pasaba igual que un acierto: si `contacto_de` dejara de
+            // guardar correos, esta prueba seguía en verde. Un test que no puede
+            // fallar no es un test.
             match resultado {
                 Ok(Some(Some(guardado))) => {
                     let esperado = valor
@@ -1114,7 +1295,15 @@ mod tests {
                         .unwrap_or(valor);
                     assert_eq!(guardado, esperado, "entrante {valor:?}");
                 }
-                Ok(_) => {}
+                // Sin correo guardado sólo se perdona un `EMAIL:` vacío, que es
+                // un dato que no está, no uno que se perdió. Cualquier valor no
+                // vacío que no llegó al contacto es un bug.
+                Ok(Some(None)) => {
+                    assert!(valor.is_empty(), "el correo {valor:?} no llegó al contacto",)
+                }
+                // `contacto_de` devolvió `None`: la tarjeta dejó de dar un
+                // contacto, y con ella todos los correos.
+                Ok(None) => panic!("la tarjeta dejó de dar contacto: {valor:?}"),
                 Err(_) => panic!("{valor:?} entró en pánico"),
             }
         }
