@@ -861,19 +861,43 @@ mod tests {
     /// Y **el texto que ve la persona no lleva nada del servidor**: el `Display`
     /// de cada error es fijo, sin dirección y sin lo que escribió el otro lado.
     /// El estado lo lee cualquiera de la sesión.
+    ///
+    /// Cada par es un error y **algo que el servidor puso adentro**: un nombre de
+    /// etiqueta del documento que no se entiende, la dirección de la máquina a la
+    /// que no se pudo hablar, el texto de una página de error. Si alguno aparece
+    /// en el mensaje, el error filtra.
+    ///
+    /// Un caso por aserción y con el fragmento en el mensaje, en vez de cuatro
+    /// aserciones que imprimen el texto entero: el fallo dice **qué** se escapó.
     #[test]
     fn el_texto_que_ve_la_persona_no_lleva_nada_del_servidor() {
-        let secretos = [
-            parse_xml("<a><b></a>", &Limits::DEFAULT).unwrap_err(),
-            DavError::network("https://nube.secreto.ejemplo.com/x"),
-            DavError::bad_xml("tu cuenta fue suspendida, entrá a <b>este</b> sitio"),
+        let casos = [
+            (
+                parse_xml("<a><zafiro></a>", &Limits::DEFAULT).unwrap_err(),
+                "zafiro",
+            ),
+            (
+                DavError::network("https://nube.interna.ejemplo.com/x"),
+                "nube.interna.ejemplo.com",
+            ),
+            (
+                DavError::bad_xml("tu cuenta fue suspendida, entrá a <b>este</b> sitio"),
+                "suspendida",
+            ),
+            // Y los de estado, que son los que más tentados están a llevar la
+            // dirección adentro.
+            (DavError::Unauthorized, "http"),
+            (DavError::Status(503), "http"),
+            (DavError::Redirect(302), "http"),
+            (DavError::ForeignOrigin, "http"),
+            (DavError::InsecureUrl, "http"),
         ];
-        for error in secretos {
-            let texto = error.to_string();
-            assert!(!texto.contains("secreto"), "{texto}");
-            assert!(!texto.contains("ejemplo.com"), "{texto}");
-            assert!(!texto.contains("suspendida"), "{texto}");
-            assert!(!texto.contains("http"), "{texto}");
+
+        for (error, fragmento) in casos {
+            assert!(
+                !error.to_string().contains(fragmento),
+                "{fragmento:?} se escapa al texto del error: {error:?}",
+            );
         }
     }
 
