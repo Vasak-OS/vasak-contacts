@@ -80,6 +80,6 @@ describe('esperarArranque', () => {
 			globalThis.clearTimeout = original;
 		}
 
-		expect(limpiados.length).toBe(1);
+		expect(limpiados).toHaveLength(1);
 	});
 });

@@ -68,11 +68,11 @@ describe('la ventana', () => {
 	});
 
 	test('y no queda un segundo borde dibujado a mano', () => {
-		expect(abrir().findAll('.rounded-corner-window').length).toBe(1);
+		expect(abrir().findAll('.rounded-corner-window')).toHaveLength(1);
 	});
 
 	test('con los tres botones', () => {
-		expect(abrir().findComponent(WindowControls).findAll('button').length).toBe(3);
+		expect(abrir().findComponent(WindowControls).findAll('button')).toHaveLength(3);
 	});
 });
 
@@ -99,7 +99,7 @@ describe('lo que va en la barra', () => {
 	});
 
 	test('y no quedó ningún hueco a mano empujando cosas', () => {
-		expect(abrir().findComponent(AppBar).findAll('span.flex-1').length).toBe(0);
+		expect(abrir().findComponent(AppBar).findAll('span.flex-1')).toHaveLength(0);
 	});
 });
 
