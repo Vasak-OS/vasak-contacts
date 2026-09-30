@@ -103,7 +103,7 @@ fn estan_las_bibliotecas_que_el_binario_enlaza() {
 }
 
 /// Lo que no se enlaza pero se usa en ejecución: las libretas salen de
-/// vasak-accounts, por el bus de sesión, y el correo y el teléfono de un
+/// vasak-accounts, por el bus del sistema, y el correo y el teléfono de un
 /// contacto se abren con `xdg-open`, en la aplicación que la persona eligió.
 #[test]
 fn estan_los_programas_que_se_usan_sin_enlazarlos() {
