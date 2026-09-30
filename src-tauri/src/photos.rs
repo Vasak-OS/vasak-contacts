@@ -292,7 +292,8 @@ async fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
 ///
 /// Afuera: esta máquina, las redes privadas, las de enlace local (donde vive el
 /// servicio de metadatos de cualquier nube, `169.254.169.254`), la de los
-/// operadores (`100.64.0.0/10`), las de documentación, multidifusión y la
+/// operadores (`100.64.0.0/10`), la de pruebas de rendimiento
+/// (`198.18.0.0/15`), las de documentación, multidifusión y la
 /// dirección sin especificar. Y una IPv6 que envuelve una IPv4 se mira por la
 /// IPv4 que lleva adentro, o `::ffff:127.0.0.1` se colaría.
 pub fn is_public(ip: IpAddr) -> bool {
@@ -308,6 +309,9 @@ pub fn is_public(ip: IpAddr) -> bool {
                 || v4.is_documentation()
                 || a == 0
                 || (a == 100 && (64..128).contains(&b))
+                // 198.18.0.0/15, la de pruebas de rendimiento: no sale a
+                // internet, y hay equipos que la usan adentro de la red.
+                || (a == 198 && (b & 0xfe) == 18)
                 || (a == 192 && b == 0 && v4.octets()[2] == 0)
                 || a >= 240)
         }
@@ -959,6 +963,9 @@ mod tests {
         // Con una IPv4 pública adentro, sí.
         assert!(public("64:ff9b::8efa:502e"));
         assert!(public("2002:8efa:502e::1"));
+        // Los bordes de 198.18.0.0/15: justo afuera, pública.
+        assert!(public("198.17.255.255"));
+        assert!(public("198.20.0.0"));
         for private in [
             "127.0.0.1",
             "10.1.2.3",
@@ -983,6 +990,9 @@ mod tests {
             "64:ff9b:1::1",
             "2002:c0a8:0101::1",
             "::7f00:1",
+            "198.18.0.1",
+            "198.19.255.255",
+            "64:ff9b::c612:1",
         ] {
             assert!(!public(private), "{private}");
         }
