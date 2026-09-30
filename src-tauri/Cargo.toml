@@ -51,8 +51,10 @@ encoding_rs = "0.8"
 # relativa en XDG_CACHE_HOME se ignora—, `sha2` para el nombre del archivo y
 # `url` para mirar la dirección antes de pedirla. Los tres son Rust puro y ya
 # estaban en el árbol por tauri y reqwest: no suman bibliotecas compartidas.
+# `dirs` 7 es la de tauri y `sha2` 0.10 la que ya estaba en el árbol: la 0.11
+# metería una segunda copia (ver `vasak.bibliotecasAtrasadas` en package.json).
 dirs = "7"
-sha2 = "0.11"
+sha2 = "0.10"
 url = "2"
 
 [dev-dependencies]

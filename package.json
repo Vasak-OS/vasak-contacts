@@ -46,7 +46,8 @@
       "typescript": "La 7 es el compilador nativo y no trae `typescript/lib/tsc`, que vue-tsc 3.3 busca ahí: el typecheck se cae antes de mirar un archivo. Se saca cuando vue-tsc declare soporte de TypeScript 7.",
       "vite": "La 8 cambia rollup por rolldown: es un salto mayor del andamiaje de compilación, y lo que hay que verificar —que la ventana empaquetada abra y cargue igual— no lo dice ninguna prueba automática. Va en su propio PR; se saca cuando se pruebe la aplicación compilada con vite 8 dentro de la sesión.",
       "reqwest (crate de Rust)": "Se queda en 0.12, la misma que usa el servicio vasak-accounts (oauth2 5 todavía pide ^0.12), y en 0.13 el TLS de rustls pasa a aws-lc-rs, que se compila en C. Se saca cuando vasak-accounts suba a 0.13.",
-      "gtk (crate de Rust)": "Va atado a la 0.18 que usan tauri y webkit2gtk: otra versión metería una segunda copia de los enlaces a GTK. Se saca cuando tauri suba de gtk-rs."
+      "gtk (crate de Rust)": "Va atado a la 0.18 que usan tauri y webkit2gtk: otra versión metería una segunda copia de los enlaces a GTK. Se saca cuando tauri suba de gtk-rs.",
+      "sha2 (crate de Rust)": "Se queda en la 0.10, la que ya trae tauri: la 0.11 metería una segunda copia, y para el nombre de un archivo de caché no cambia nada. Se saca cuando tauri suba a sha2 0.11."
     }
   }
 }
