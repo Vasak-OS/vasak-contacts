@@ -171,6 +171,13 @@ pub fn social_from(property: &Property, label: String) -> Option<SocialProfile> 
         }
     };
 
+    // Una etiqueta que repite el servicio —Apple pone `twitter` en la
+    // `X-ABLabel` de un perfil de Twitter— no dice nada que no diga el nombre.
+    let label = if label.eq_ignore_ascii_case(&profile.service) {
+        String::new()
+    } else {
+        label
+    };
     let profile = SocialProfile {
         label: if profile.label.is_empty() {
             label
@@ -269,6 +276,17 @@ mod tests {
         assert_eq!(
             web_url("http://ejemplo.com").as_deref(),
             Some("http://ejemplo.com")
+        );
+    }
+
+    /// La etiqueta que sólo repite el servicio no se muestra dos veces.
+    #[test]
+    fn una_etiqueta_que_repite_el_servicio_se_descarta() {
+        let property = split_property("X-SOCIALPROFILE;TYPE=twitter:anaperez").unwrap();
+        assert_eq!(social_from(&property, "Twitter".into()).unwrap().label, "");
+        assert_eq!(
+            social_from(&property, "personal".into()).unwrap().label,
+            "personal"
         );
     }
 

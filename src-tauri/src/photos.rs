@@ -315,7 +315,38 @@ pub fn is_public(ip: IpAddr) -> bool {
             if let Some(v4) = v6.to_ipv4_mapped() {
                 return is_public(IpAddr::V4(v4));
             }
-            let first = v6.segments()[0];
+            let s = v6.segments();
+            let first = s[0];
+            let embedded = |a: u16, b: u16| {
+                IpAddr::V4(std::net::Ipv4Addr::new(
+                    (a >> 8) as u8,
+                    a as u8,
+                    (b >> 8) as u8,
+                    b as u8,
+                ))
+            };
+            // Las que llevan una IPv4 adentro se miran por esa IPv4: si no, un
+            // traductor NAT64 o un túnel 6to4 llevan a la red de la casa.
+            if first == 0x0064 && s[1] == 0xff9b {
+                // 64:ff9b:1::/48 es de uso local, y no hay una sola forma de
+                // saber dónde va la IPv4: se rechaza entera.
+                if s[2] == 1 {
+                    return false;
+                }
+                // 64:ff9b::/96, la de NAT64.
+                if s[2..6].iter().all(|x| *x == 0) {
+                    return is_public(embedded(s[6], s[7]));
+                }
+            }
+            // 2002::/16, 6to4: la IPv4 va en los dos segmentos siguientes.
+            if first == 0x2002 {
+                return is_public(embedded(s[1], s[2]));
+            }
+            // `::a.b.c.d`, las compatibles con IPv4, ya en desuso: también
+            // cubren `::1` y `::`.
+            if s[..6].iter().all(|x| *x == 0) {
+                return false;
+            }
             !(v6.is_loopback()
                 || v6.is_unspecified()
                 || v6.is_multicast()
@@ -324,7 +355,7 @@ pub fn is_public(ip: IpAddr) -> bool {
                 // fe80::/10, las de enlace local.
                 || (first & 0xffc0) == 0xfe80
                 // 2001:db8::/32, las de documentación.
-                || (first == 0x2001 && v6.segments()[1] == 0x0db8))
+                || (first == 0x2001 && s[1] == 0x0db8))
         }
     }
 }
@@ -925,6 +956,9 @@ mod tests {
         let public = |s: &str| is_public(s.parse().unwrap());
         assert!(public("142.250.80.46"));
         assert!(public("2607:f8b0:4004:c07::64"));
+        // Con una IPv4 pública adentro, sí.
+        assert!(public("64:ff9b::8efa:502e"));
+        assert!(public("2002:8efa:502e::1"));
         for private in [
             "127.0.0.1",
             "10.1.2.3",
@@ -945,6 +979,10 @@ mod tests {
             "ff02::1",
             "2001:db8::1",
             "::ffff:10.0.0.1",
+            "64:ff9b::c0a8:1",
+            "64:ff9b:1::1",
+            "2002:c0a8:0101::1",
+            "::7f00:1",
         ] {
             assert!(!public(private), "{private}");
         }

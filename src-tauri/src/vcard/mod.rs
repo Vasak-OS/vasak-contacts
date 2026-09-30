@@ -24,7 +24,8 @@
 //!   caracteres puede ser cualquiera.
 //! - En **4.0** todo es UTF-8 y las direcciones llevan `mailto:`.
 //!
-//! Se leen las tres. Escribir es otra cosa y todavía no se hace.//!
+//! Se leen las tres. Escribir es otra cosa y todavía no se hace.
+//!
 //! ── Dónde está cada cosa ────────────────────────────────────────────────────
 //!
 //! - [`lines`]: juntar lo plegado, separar nombre, parámetros y valor, y

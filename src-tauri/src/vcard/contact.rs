@@ -70,8 +70,9 @@ pub const MAX_LIST_ITEMS: usize = 50;
 /// Una dirección de correo, un teléfono, o cualquier cosa con una etiqueta.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LabeledValue {
-    /// «casa», «trabajo», «celular»… tal como lo escribió quien hizo la
-    /// tarjeta, en minúsculas. Vacío si no dijo nada.
+    /// «home», «work», «cell»… en minúsculas si es una de las de siempre, para
+    /// que la ventana la traduzca; la que escribió la persona en una tarjeta de
+    /// Apple, como la escribió. Vacío si no dijo nada.
     pub label: String,
     pub value: String,
 }
@@ -249,7 +250,8 @@ const GOOGLE_SYSTEM_GROUPS: &[&str] = &["myContacts", "starred"];
 ///
 /// Las de siempre vienen envueltas —`_$!<HomePage>!$_`— y se dejan en
 /// minúsculas, como las de `TYPE`, para que la ventana las traduzca. Las que
-/// escribió la persona («Casa de la playa») vienen tal cual.
+/// escribió la persona («Casa de la playa») quedan **como las escribió**: son
+/// texto suyo, y pasarlas a minúsculas le cambia lo que puso.
 fn apple_label(raw: &str) -> String {
     let raw = raw.trim();
     match raw
@@ -257,7 +259,7 @@ fn apple_label(raw: &str) -> String {
         .and_then(|r| r.strip_suffix(">!$_"))
     {
         Some(stock) => stock.to_ascii_lowercase(),
-        None => raw.to_lowercase(),
+        None => raw.to_string(),
     }
 }
 

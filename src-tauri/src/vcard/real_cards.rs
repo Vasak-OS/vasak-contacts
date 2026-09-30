@@ -187,11 +187,12 @@ fn la_tarjeta_de_google_se_lee_entera() {
     assert_eq!(c.birthday, ymd(None, 4, 15));
     // La fecha de Apple que usa Google, con la etiqueta de aniversario.
     assert_eq!(c.anniversary, ymd(Some(2010), 6, 12));
-    // La dirección con los dos puntos escapados, y la etiqueta del grupo.
+    // La dirección con los dos puntos escapados, y la etiqueta del grupo tal
+    // como vino: la ventana la traduce sin mirar mayúsculas.
     assert_eq!(
         c.websites,
         vec![LabeledValue {
-            label: "blog".into(),
+            label: "BLOG".into(),
             value: "https://ana.ejemplo.com".into()
         }]
     );
@@ -226,7 +227,7 @@ fn la_tarjeta_de_icloud_se_lee_entera() {
     assert_eq!(c.anniversary, ymd(Some(2010), 6, 12));
     // Y la fecha con una etiqueta que escribió la persona.
     assert_eq!(c.other_dates.len(), 1);
-    assert_eq!(c.other_dates[0].label, "llegó a la oficina");
+    assert_eq!(c.other_dates[0].label, "Llegó a la oficina");
     assert_eq!(c.other_dates[0].date, ymd(Some(2015), 3, 1).unwrap());
 
     assert_eq!(c.websites[0].label, "homepage");
@@ -417,7 +418,7 @@ fn los_campos_a_medida_se_conservan() {
             },
             CustomField {
                 name: "X-CUSTOM".into(),
-                label: "color favorito".into(),
+                label: "Color favorito".into(),
                 value: "azul".into()
             },
         ]
