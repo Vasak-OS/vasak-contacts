@@ -90,8 +90,8 @@ export function formatPartialDate(date: PartialDate, locale: string): string {
  */
 export function webLink(value: string): string {
 	const trimmed = value.trim();
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: justamente se buscan los controles.
-	if (!trimmed || /[\s\u0000-\u001f\u007f]/.test(trimmed)) {
+	// Espacios y caracteres de control: ninguna dirección de verdad los lleva.
+	if (!trimmed || /[\s\p{Cc}]/u.test(trimmed)) {
 		return '';
 	}
 	const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(trimmed);
@@ -130,7 +130,7 @@ export function initialsOf(name: string): string {
 		return '';
 	}
 	const first = Array.from(words[0])[0] ?? '';
-	const last = words.length > 1 ? (Array.from(words[words.length - 1])[0] ?? '') : '';
+	const last = words.length > 1 ? (Array.from(words.at(-1) ?? '')[0] ?? '') : '';
 	return (first + last).toLocaleUpperCase();
 }
 

@@ -321,7 +321,7 @@ const kindLabel = computed(() => {
         </section>
 
         <!-- Lo que se consulta poco, plegado: sin esto la ficha de alguien con
-             todo cargado es un formulario de treinta renglones. -->
+             cada campo cargado es un formulario de treinta renglones. -->
         <details v-if="hasMore" class="flex flex-col gap-1" data-testid="more">
           <summary class="cursor-pointer font-medium text-tx-muted text-xs uppercase">
             {{ t('contact.more') }}

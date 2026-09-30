@@ -278,231 +278,283 @@ pub fn contact_from(raw: &str, url: &str) -> Option<Contact> {
         .filter(|p| !p.group.is_empty() && p.name == "X-ABLABEL")
         .map(|p| (p.group.as_str(), clipped(&apple_label(&display_value(p)))))
         .collect();
-    let label_for = |property: &Property| -> String {
-        apple_labels
+
+    // Segunda pasada: el contacto.
+    let mut builder = ContactBuilder {
+        contact: Contact {
+            url: url.to_string(),
+            ..Default::default()
+        },
+        apple_labels,
+        structured_name: Vec::new(),
+        photo_seen: false,
+        kind_from_apple: String::new(),
+    };
+    for property in &properties {
+        builder.add(property);
+    }
+    builder.finish()
+}
+
+/// Lo que se va juntando mientras se leen las propiedades de una tarjeta.
+///
+/// Una función por propiedad con trabajo propio, en vez de un solo `match` con
+/// todo adentro: así cada regla se lee sola y se prueba sola.
+struct ContactBuilder<'a> {
+    contact: Contact,
+    apple_labels: HashMap<&'a str, String>,
+    structured_name: Vec<String>,
+    photo_seen: bool,
+    kind_from_apple: String,
+}
+
+impl ContactBuilder<'_> {
+    /// La etiqueta de una propiedad: la de Apple si la tiene, que es lo que
+    /// escribió la persona, y si no la del `TYPE`.
+    fn label_for(&self, property: &Property) -> String {
+        self.apple_labels
             .get(property.group.as_str())
             .filter(|l| !l.is_empty())
             .cloned()
             .unwrap_or_else(|| clipped(&label_of(&property.params)))
-    };
+    }
 
-    let mut contact = Contact {
-        url: url.to_string(),
-        ..Default::default()
-    };
-    let mut structured_name: Vec<String> = Vec::new();
-    let mut photo_seen = false;
-    let mut kind_from_apple = String::new();
-
-    for property in &properties {
+    fn add(&mut self, property: &Property) {
+        let c = &mut self.contact;
         match property.name.as_str() {
-            "UID" => contact.uid = clipped(&display_value(property)),
-            "FN" => contact.name = clipped(&display_value(property)),
-            "N" => structured_name = split_fields(&decoded(property)),
-            "EMAIL" => {
-                // En la 4.0 la dirección viene como `mailto:ana@x`. Dejarlo
-                // haría que el botón de escribirle abriera «mailto:mailto:…».
-                let value = display_value(property);
-                let value = strip_scheme(&value, "mailto:").trim().to_string();
-                push_labeled(&mut contact.emails, label_for(property), value);
+            "UID" => c.uid = clipped(&display_value(property)),
+            "FN" => c.name = clipped(&display_value(property)),
+            "N" => self.structured_name = split_fields(&decoded(property)),
+            // En la 4.0 la dirección viene como `mailto:ana@x`. Dejarlo haría que
+            // el botón de escribirle abriera «mailto:mailto:…».
+            "EMAIL" => self.add_with_scheme(property, "mailto:", |c| &mut c.emails),
+            "TEL" => self.add_with_scheme(property, "tel:", |c| &mut c.phones),
+            "ORG" => c.organization = organization_from(property),
+            "NOTE" => c.notes = clipped(&display_value(property)),
+            "PHOTO" => self.add_photo(property),
+            "ADR" => self.add_address(property),
+            "BDAY" if c.birthday.is_none() => c.birthday = date_from(property, clipped),
+            "ANNIVERSARY" | "X-ANNIVERSARY" | "X-EVOLUTION-ANNIVERSARY"
+                if c.anniversary.is_none() =>
+            {
+                c.anniversary = date_from(property, clipped)
             }
-            "TEL" => {
-                let value = display_value(property);
-                let value = strip_scheme(&value, "tel:").trim().to_string();
-                push_labeled(&mut contact.phones, label_for(property), value);
-            }
-            "ORG" => {
-                // `ORG` trae la empresa y sus divisiones separadas por punto y
-                // coma. Se muestran juntas y no sólo la primera: «Vasak Group»
-                // y «Vasak Group, Soporte» son cosas distintas.
-                contact.organization = clipped(
-                    &split_fields(&decoded(property))
-                        .into_iter()
-                        .filter(|c| !c.trim().is_empty())
-                        .collect::<Vec<_>>()
-                        .join(", "),
-                );
-            }
-            "NOTE" => contact.notes = clipped(&display_value(property)),
-            "PHOTO" => {
-                // **Sólo la primera que se pueda usar**, y se decodifica una
-                // vez: una tarjeta con veinte fotos no hace veinte veces el
-                // trabajo.
-                if photo_seen {
-                    continue;
-                }
-                match photo_from(property) {
-                    Some(PhotoSource::Inline(uri)) => {
-                        contact.photo = uri;
-                        contact.photo_url.clear();
-                        contact.photo_skipped = None;
-                        photo_seen = true;
-                    }
-                    Some(PhotoSource::Remote(remote)) => {
-                        contact.photo_url = remote;
-                        contact.photo_skipped = None;
-                        photo_seen = true;
-                    }
-                    // Una que no sirve no tapa a la siguiente: se anota por qué,
-                    // y se sigue buscando.
-                    Some(PhotoSource::Skipped(why)) if contact.photo_skipped.is_none() => {
-                        contact.photo_skipped = Some(why);
-                    }
-                    Some(PhotoSource::Skipped(_)) | None => {}
-                }
-            }
-            "ADR" => {
-                // Se decodifica antes de partir y se desescapa después, como el
-                // `N`: al revés, un punto y coma escapado partía la calle en dos.
-                let fields = split_fields(&decoded(property));
-                let field = |i: usize| clipped(fields.get(i).map(|f| f.trim()).unwrap_or(""));
-                let address = Address {
-                    label: label_for(property),
-                    po_box: field(0),
-                    extended: field(1),
-                    street: field(2),
-                    locality: field(3),
-                    region: field(4),
-                    postal_code: field(5),
-                    country: field(6),
-                };
-                if !address.is_empty() && contact.addresses.len() < MAX_LIST_ITEMS {
-                    contact.addresses.push(address);
-                }
-            }
-            "BDAY" => {
-                if contact.birthday.is_none() {
-                    contact.birthday = date_from(property, clipped);
-                }
-            }
-            "ANNIVERSARY" | "X-ANNIVERSARY" | "X-EVOLUTION-ANNIVERSARY" => {
-                if contact.anniversary.is_none() {
-                    contact.anniversary = date_from(property, clipped);
-                }
-            }
-            "X-ABDATE" => {
-                let Some(date) = date_from(property, clipped) else {
-                    continue;
-                };
-                let label = label_for(property);
-                if label == "anniversary" && contact.anniversary.is_none() {
-                    contact.anniversary = Some(date);
-                } else if contact.other_dates.len() < MAX_LIST_ITEMS {
-                    contact.other_dates.push(LabeledDate { label, date });
-                }
-            }
-            "URL" => {
+            "X-ABDATE" => self.add_labeled_date(property),
+            "URL" if c.websites.len() < MAX_LIST_ITEMS => {
                 let value = display_value(property).trim().to_string();
-                if contact.websites.len() < MAX_LIST_ITEMS {
-                    push_labeled(&mut contact.websites, label_for(property), value);
-                }
+                let label = self.label_for(property);
+                push_labeled(&mut self.contact.websites, label, value);
             }
-            "TITLE" => contact.title = clipped(display_value(property).trim()),
-            "ROLE" => contact.role = clipped(display_value(property).trim()),
-            "NICKNAME" => {
-                contact.nickname = clipped(&split_list(&decoded(property)).join(", "));
-            }
+            "TITLE" => c.title = clipped(display_value(property).trim()),
+            "ROLE" => c.role = clipped(display_value(property).trim()),
+            "NICKNAME" => c.nickname = clipped(&split_list(&decoded(property)).join(", ")),
             "KIND" | "X-ADDRESSBOOKSERVER-KIND" => {
-                let kind = display_value(property).trim().to_ascii_lowercase();
-                if matches!(kind.as_str(), "individual" | "group" | "org" | "location") {
-                    contact.kind = kind;
+                if let Some(kind) = kind_from(property) {
+                    c.kind = kind;
                 }
             }
             // Apple dice «es una empresa» así.
-            "X-ABSHOWAS" => {
+            "X-ABSHOWAS"
                 if display_value(property)
                     .trim()
-                    .eq_ignore_ascii_case("company")
-                {
-                    kind_from_apple = "org".into();
-                }
+                    .eq_ignore_ascii_case("company") =>
+            {
+                self.kind_from_apple = "org".into();
             }
-            "LANG" => {
-                let tag = display_value(property).trim().to_string();
-                // Una etiqueta de idioma es corta y sin espacios: `es-AR`.
-                let looks_like_tag = !tag.is_empty()
-                    && tag.len() <= 35
-                    && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-                if looks_like_tag
-                    && contact.languages.len() < MAX_LIST_ITEMS
-                    && !contact.languages.contains(&tag)
-                {
-                    contact.languages.push(tag);
-                }
+            "LANG" => self.add_language(property),
+            "TZ" if c.time_zone.is_empty() => c.time_zone = clipped(display_value(property).trim()),
+            "GEO" if c.geo.is_empty() => {
+                c.geo = geo_from(&display_value(property)).unwrap_or_default()
             }
-            "TZ" => {
-                if contact.time_zone.is_empty() {
-                    contact.time_zone = clipped(display_value(property).trim());
-                }
-            }
-            "GEO" => {
-                if contact.geo.is_empty() {
-                    contact.geo = geo_from(&display_value(property)).unwrap_or_default();
-                }
-            }
-            "CATEGORIES" => {
-                let mut seen: HashSet<String> = contact.categories.iter().cloned().collect();
-                for category in split_list(&decoded(property)) {
-                    let category = clipped(category.trim());
-                    if GOOGLE_SYSTEM_GROUPS.contains(&category.as_str())
-                        || contact.categories.len() >= MAX_LIST_ITEMS
-                    {
-                        continue;
-                    }
-                    if seen.insert(category.clone()) {
-                        contact.categories.push(category);
-                    }
-                }
-            }
-            name if is_social(name) => {
-                if let Some(profile) = social_from(property, label_for(property)) {
-                    if contact.social.len() < MAX_LIST_ITEMS {
-                        contact.social.push(SocialProfile {
-                            service: clipped(&profile.service),
-                            label: profile.label,
-                            handle: clipped(&profile.handle),
-                            url: if profile.url.len() <= MAX_VALUE {
-                                profile.url
-                            } else {
-                                String::new()
-                            },
-                        });
-                    }
-                }
-            }
+            "CATEGORIES" => self.add_categories(property),
+            name if is_social(name) => self.add_social(property),
             name if name.starts_with("X-") && !HIDDEN_X_PROPERTIES.contains(&name) => {
-                let value = display_value(property).trim().to_string();
-                if value.is_empty() || contact.custom_fields.len() >= MAX_LIST_ITEMS {
-                    continue;
-                }
-                contact.custom_fields.push(CustomField {
-                    name: clipped(name),
-                    label: apple_labels
-                        .get(property.group.as_str())
-                        .cloned()
-                        .unwrap_or_default(),
-                    value: clipped(&value),
-                });
+                self.add_custom_field(property)
             }
             _ => {}
         }
     }
 
-    if contact.kind.is_empty() {
-        contact.kind = kind_from_apple;
+    fn add_with_scheme(
+        &mut self,
+        property: &Property,
+        scheme: &str,
+        target: fn(&mut Contact) -> &mut Vec<LabeledValue>,
+    ) {
+        let value = display_value(property);
+        let value = strip_scheme(&value, scheme).trim().to_string();
+        let label = self.label_for(property);
+        push_labeled(target(&mut self.contact), label, value);
     }
 
-    // El nombre que se muestra: el `FN` si está, y si no se arma con el `N`.
-    // Una tarjeta sin `FN` es inválida según el estándar y aparece igual, así
-    // que armarlo es la diferencia entre ver a alguien y ver un renglón vacío.
-    if contact.name.trim().is_empty() {
-        contact.name = display_name(&structured_name);
+    /// **Sólo la primera foto que se pueda usar**, y se decodifica una vez: una
+    /// tarjeta con veinte fotos no hace veinte veces el trabajo.
+    fn add_photo(&mut self, property: &Property) {
+        if self.photo_seen {
+            return;
+        }
+        let c = &mut self.contact;
+        match photo_from(property) {
+            Some(PhotoSource::Inline(uri)) => {
+                c.photo = uri;
+                c.photo_url.clear();
+                c.photo_skipped = None;
+                self.photo_seen = true;
+            }
+            Some(PhotoSource::Remote(remote)) => {
+                c.photo_url = remote;
+                c.photo_skipped = None;
+                self.photo_seen = true;
+            }
+            // Una que no sirve no tapa a la siguiente: se anota por qué, y se
+            // sigue buscando.
+            Some(PhotoSource::Skipped(why)) if c.photo_skipped.is_none() => {
+                c.photo_skipped = Some(why);
+            }
+            Some(PhotoSource::Skipped(_)) | None => {}
+        }
     }
-    contact.sort_key = sort_name(&structured_name, &contact.name);
 
-    let has_something =
-        !contact.name.trim().is_empty() || !contact.emails.is_empty() || !contact.phones.is_empty();
-    has_something.then_some(contact)
+    /// Se decodifica antes de partir y se desescapa después, como el `N`: al
+    /// revés, un punto y coma escapado partía la calle en dos.
+    fn add_address(&mut self, property: &Property) {
+        if self.contact.addresses.len() >= MAX_LIST_ITEMS {
+            return;
+        }
+        let fields = split_fields(&decoded(property));
+        let field = |i: usize| clipped(fields.get(i).map(|f| f.trim()).unwrap_or(""));
+        let address = Address {
+            label: self.label_for(property),
+            po_box: field(0),
+            extended: field(1),
+            street: field(2),
+            locality: field(3),
+            region: field(4),
+            postal_code: field(5),
+            country: field(6),
+        };
+        if !address.is_empty() {
+            self.contact.addresses.push(address);
+        }
+    }
+
+    /// Las fechas de Apple: la que tiene la etiqueta de aniversario es el
+    /// aniversario, y el resto va con la etiqueta que tenga.
+    fn add_labeled_date(&mut self, property: &Property) {
+        let Some(date) = date_from(property, clipped) else {
+            return;
+        };
+        let label = self.label_for(property);
+        let c = &mut self.contact;
+        if label == "anniversary" && c.anniversary.is_none() {
+            c.anniversary = Some(date);
+        } else if c.other_dates.len() < MAX_LIST_ITEMS {
+            c.other_dates.push(LabeledDate { label, date });
+        }
+    }
+
+    /// Una etiqueta de idioma es corta y sin espacios: `es-AR`. Lo que no lo
+    /// parece no se guarda, y no se repite.
+    fn add_language(&mut self, property: &Property) {
+        let tag = display_value(property).trim().to_string();
+        let looks_like_tag = !tag.is_empty()
+            && tag.len() <= 35
+            && tag.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+        let languages = &mut self.contact.languages;
+        if looks_like_tag && languages.len() < MAX_LIST_ITEMS && !languages.contains(&tag) {
+            languages.push(tag);
+        }
+    }
+
+    fn add_categories(&mut self, property: &Property) {
+        let categories = &mut self.contact.categories;
+        let mut seen: HashSet<String> = categories.iter().cloned().collect();
+        for category in split_list(&decoded(property)) {
+            let category = clipped(category.trim());
+            let system = GOOGLE_SYSTEM_GROUPS.contains(&category.as_str());
+            if !system && categories.len() < MAX_LIST_ITEMS && seen.insert(category.clone()) {
+                categories.push(category);
+            }
+        }
+    }
+
+    fn add_social(&mut self, property: &Property) {
+        if self.contact.social.len() >= MAX_LIST_ITEMS {
+            return;
+        }
+        let Some(profile) = social_from(property, self.label_for(property)) else {
+            return;
+        };
+        self.contact.social.push(SocialProfile {
+            service: clipped(&profile.service),
+            label: profile.label,
+            handle: clipped(&profile.handle),
+            // Una dirección recortada ya no es la dirección: mejor ninguna.
+            url: if profile.url.len() <= MAX_VALUE {
+                profile.url
+            } else {
+                String::new()
+            },
+        });
+    }
+
+    fn add_custom_field(&mut self, property: &Property) {
+        let value = display_value(property).trim().to_string();
+        if value.is_empty() || self.contact.custom_fields.len() >= MAX_LIST_ITEMS {
+            return;
+        }
+        let label = self
+            .apple_labels
+            .get(property.group.as_str())
+            .cloned()
+            .unwrap_or_default();
+        self.contact.custom_fields.push(CustomField {
+            name: clipped(&property.name),
+            label,
+            value: clipped(&value),
+        });
+    }
+
+    fn finish(self) -> Option<Contact> {
+        let mut contact = self.contact;
+        if contact.kind.is_empty() {
+            contact.kind = self.kind_from_apple;
+        }
+
+        // El nombre que se muestra: el `FN` si está, y si no se arma con el `N`.
+        // Una tarjeta sin `FN` es inválida según el estándar y aparece igual,
+        // así que armarlo es la diferencia entre ver a alguien y ver un renglón
+        // vacío.
+        if contact.name.trim().is_empty() {
+            contact.name = display_name(&self.structured_name);
+        }
+        contact.sort_key = sort_name(&self.structured_name, &contact.name);
+
+        let has_something = !contact.name.trim().is_empty()
+            || !contact.emails.is_empty()
+            || !contact.phones.is_empty();
+        has_something.then_some(contact)
+    }
+}
+
+/// `ORG` trae la empresa y sus divisiones separadas por punto y coma. Se
+/// muestran juntas y no sólo la primera: «Vasak Group» y «Vasak Group,
+/// Soporte» son cosas distintas.
+fn organization_from(property: &Property) -> String {
+    clipped(
+        &split_fields(&decoded(property))
+            .into_iter()
+            .filter(|c| !c.trim().is_empty())
+            .collect::<Vec<_>>()
+            .join(", "),
+    )
+}
+
+/// `individual`, `group`, `org` o `location`; lo que no es ninguno no se
+/// guarda.
+fn kind_from(property: &Property) -> Option<String> {
+    let kind = display_value(property).trim().to_ascii_lowercase();
+    matches!(kind.as_str(), "individual" | "group" | "org" | "location").then_some(kind)
 }
 
 /// «latitud, longitud» de un `GEO`, de la 3.0 (`37.38;-122.08`) o de la 4.0

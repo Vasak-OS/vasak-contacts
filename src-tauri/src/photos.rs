@@ -169,7 +169,9 @@ impl PhotoStore {
         }
 
         let lock = {
-            let mut map = IN_FLIGHT.lock().unwrap_or_else(|e| e.into_inner());
+            let mut map = IN_FLIGHT
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             map.entry(key.clone()).or_default().clone()
         };
         let outcome = {
@@ -181,7 +183,7 @@ impl PhotoStore {
         // que se pidió alguna vez quedaría en memoria hasta cerrar.
         IN_FLIGHT
             .lock()
-            .unwrap_or_else(|e| e.into_inner())
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .remove(&key);
         outcome
     }
@@ -429,7 +431,7 @@ pub async fn fetch_photo(
                     e.source()
                 });
             if chain
-                .map(|e| e.to_string())
+                .map(ToString::to_string)
                 .any(|m| m.contains("adentro de la red"))
             {
                 FetchError::PrivateAddress

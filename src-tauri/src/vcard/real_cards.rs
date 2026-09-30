@@ -12,7 +12,7 @@
 
 use base64::Engine;
 
-use super::contact::*;
+use super::contact::{contact_from, Contact, CustomField, LabeledValue, MAX_LIST_ITEMS};
 use super::date::PartialDate;
 use super::photo::tests::{jpeg_of, PNG_1X1};
 use super::photo::{PhotoSkipped, MAX_PHOTO_BYTES};
