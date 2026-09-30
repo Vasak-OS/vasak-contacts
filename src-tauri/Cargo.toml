@@ -34,7 +34,7 @@ tauri-plugin-shell = "2"
 gtk = "0.18"
 tauri-plugin-vsk-journal = "2"
 # Para hablar con vasak-accounts, que es de donde salen las libretas.
-zbus = { version = "4", default-features = false, features = ["tokio"] }
+zbus = { version = "5", default-features = false, features = ["tokio"] }
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
 # CardDAV es HTTP con dos métodos más. rustls: es Rust puro, así que no suma
 # bibliotecas compartidas al paquete.

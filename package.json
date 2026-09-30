@@ -45,7 +45,6 @@
       "pinia": "La 4 es un salto mayor del andamiaje que comparten catorce aplicaciones del taller (decisión en vasak-file-manager#90): va en su propio PR, coordinado con el resto. Se saca cuando el taller entero pase a pinia 4.",
       "typescript": "La 7 es el compilador nativo y no trae `typescript/lib/tsc`, que vue-tsc 3.3 busca ahí: el typecheck se cae antes de mirar un archivo. Se saca cuando vue-tsc declare soporte de TypeScript 7.",
       "vite": "La 8 cambia rollup por rolldown: es un salto mayor del andamiaje de compilación, y lo que hay que verificar —que la ventana empaquetada abra y cargue igual— no lo dice ninguna prueba automática. Va en su propio PR; se saca cuando se pruebe la aplicación compilada con vite 8 dentro de la sesión.",
-      "zbus (crate de Rust)": "La 5 cambia la API de proxies y conexiones, y el servicio vasak-accounts —del otro lado de este bus— y los complementos del taller siguen en la 4: subirla es un salto mayor del andamiaje de D-Bus que va en su propio PR. Se saca cuando el taller pase a zbus 5.",
       "reqwest (crate de Rust)": "Se queda en 0.12, la misma que usa el servicio vasak-accounts (oauth2 5 todavía pide ^0.12), y en 0.13 el TLS de rustls pasa a aws-lc-rs, que se compila en C. Se saca cuando vasak-accounts suba a 0.13.",
       "gtk (crate de Rust)": "Va atado a la 0.18 que usan tauri y webkit2gtk: otra versión metería una segunda copia de los enlaces a GTK. Se saca cuando tauri suba de gtk-rs."
     }
