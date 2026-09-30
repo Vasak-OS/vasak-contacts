@@ -21,14 +21,47 @@ lista:
   otros: Other
   cuantosOne: "{0} contact"
   cuantosOther: "{0} contacts"
-contacto:
-  elegiUno: Pick a contact to see it
-  correos: Email
-  telefonos: Phone
-  organizacion: Works at
-  notas: Notes
-  escribir: Write
-  llamar: Call
-  copiar: Copy
-  copiado: Copied
-  soloLectura: This version shows contacts; editing comes later.
+contact:
+  pickOne: Pick a contact to see it
+  emails: Email
+  phones: Phone
+  notes: Notes
+  write: Write
+  call: Call
+  copy: Copy
+  copied: Copied
+  open: Open
+  readOnly: This version shows contacts; editing comes later.
+  photoAlt: "Photo of {0}"
+  photoTooLarge: The photo on this card is too large to show.
+  photoInsecure: The photo is at an unencrypted address and is not downloaded.
+  addresses: Address
+  dates: Dates
+  birthday: Birthday
+  anniversary: Anniversary
+  otherDate: Date
+  websites: Website
+  social: Social and messaging
+  categories: Categories
+  more: More details
+  languages: Languages
+  timeZone: Time zone
+  location: Location
+  kinds:
+    org: Organization
+    group: Group
+    location: Place
+  labels:
+    home: home
+    work: work
+    cell: mobile
+    mobile: mobile
+    main: main
+    fax: fax
+    pager: pager
+    other: other
+    homepage: homepage
+    blog: blog
+    profile: profile
+    anniversary: anniversary
+    school: school

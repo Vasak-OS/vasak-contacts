@@ -12,19 +12,39 @@ Tauri 2 + Vue 3 + TypeScript + Tailwind 4, sobre la plantilla
 
 **Hace:** lista las cuentas con libreta, descubre las libretas de cada una por
 CardDAV, trae todos los contactos y los muestra ordenados por apellido y
-agrupados por inicial. Se busca por nombre, organización, correo y teléfono.
-Desde un contacto se le puede escribir, llamar o copiar el dato.
+agrupados por inicial. Se busca por nombre, apodo, organización, cargo, correo y
+teléfono. Desde un contacto se le puede escribir, llamar o copiar el dato.
+
+La ficha muestra la foto (o las iniciales), el apodo, el cargo y la función, las
+direcciones en renglones, el cumpleaños y el aniversario —también sin año—, las
+webs, las redes y la mensajería, las categorías, y en «Más datos» los idiomas,
+la zona horaria, la ubicación y los campos a medida (`X-`). Lo que está vacío no
+se muestra.
 
 **Todavía no hace:**
 
 - **Crear, editar ni borrar contactos.** Escribir por CardDAV es su propio
-  trabajo: el `If-Match`, los conflictos con lo que cambió otro cliente, y qué
-  hacer cuando dos dispositivos editaron al mismo tiempo.
-- **Mostrar fotos.** Una `PHOTO` en base64 multiplica por diez el tamaño de la
-  respuesta, y traerla para una lista donde no se ve sería gastar la conexión de
-  la persona en nada.
-- **Direcciones postales, cumpleaños y el resto de los campos.** Se leen el
-  nombre, la organización, los correos, los teléfonos y las notas.
+  trabajo (Vasak-OS/vasak-contacts#2): el `If-Match`, los conflictos con lo que
+  cambió otro cliente, y qué hacer cuando dos dispositivos editaron al mismo
+  tiempo.
+- **Las relaciones** (`RELATED`, las de Apple y las de Google) y los miembros de
+  un grupo (`MEMBER`): hay que resolverlas contra los demás contactos, y es
+  Vasak-OS/vasak-contacts#6.
+
+### Las fotos
+
+Las que vienen adentro de la tarjeta —base64 en la 2.1 y la 3.0, `data:` en la
+4.0— se decodifican una vez al leer, se reconocen por sus bytes (JPEG, PNG, GIF
+o WebP; un SVG no) y tienen su propio tope, 256 KiB.
+
+Las que vienen como una dirección, que es lo que manda Google, **no las pide
+nunca la ventana**: sería un rastreador de apertura. Las baja el programa una
+sola vez —sólo `https`, sin cookies ni `Referer`, sin redirecciones, sólo a
+direcciones públicas, con plazo y con el mismo tope—, comprueba que sean una
+imagen por el `Content-Type` y por los bytes, y las guarda en
+`$XDG_CACHE_HOME/vasak-contacts/photos/`. La ficha las muestra siempre desde
+ahí. Si una falla, no se vuelve a intentar por seis horas. Esta caché pasa al
+almacén local del servicio del usuario cuando exista (decisión 6 del taller).
 
 ---
 
@@ -56,8 +76,10 @@ llega a los eventos.
 |---|---|
 | `src-tauri/src/cuentas.rs` | Habla con `vasak-accounts`. `Credencial` **no deriva `Debug`** — el secreto se tacha a mano. |
 | `src-tauri/src/carddav.rs` | `PROPFIND` para descubrir las libretas, `REPORT` para traer las tarjetas. |
-| `src-tauri/src/vcard.rs` | El parseo de las tarjetas. Las tres versiones del formato. |
-| `src/tools/agenda.ts` | Ordenar y buscar. |
+| `src-tauri/src/vcard/` | El parseo de las tarjetas: las líneas (`lines.rs`), el contacto (`contact.rs`), las fechas, la foto y las redes. Las tres versiones del formato. |
+| `src-tauri/src/photos.rs` | Las fotos que están afuera de la tarjeta: bajarlas una vez y guardarlas en la caché. |
+| `src/tools/address-book.ts` | Ordenar y buscar. |
+| `src/tools/contact-fields.ts` | Cómo se muestra cada campo: renglones de la dirección, fechas sin año, qué web se puede abrir. |
 
 ### Por qué se trae todo de una
 

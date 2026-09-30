@@ -1,6 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { computed, ref } from 'vue';
-import { buscados, type Contacto, ordenados } from '@/tools/agenda';
+import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
 
 /** Una cuenta conectada que tiene libretas. */
 export interface Cuenta {
@@ -23,7 +23,7 @@ export interface Libreta {
 
 interface LecturaDeCuenta {
 	libretas: Libreta[];
-	contactos: Contacto[];
+	contactos: Contact[];
 	fallos: string[];
 }
 
@@ -38,8 +38,8 @@ interface LecturaDeCuenta {
  */
 export function useAgenda(locale: () => string) {
 	const cuentas = ref<Cuenta[]>([]);
-	const contactos = ref<Contacto[]>([]);
-	const elegido = ref<Contacto | null>(null);
+	const contactos = ref<Contact[]>([]);
+	const elegido = ref<Contact | null>(null);
 	const consulta = ref('');
 	const cargando = ref(false);
 	/** Lo que impidió leer algo, en el idioma de lo que la persona puede hacer. */
@@ -54,9 +54,9 @@ export function useAgenda(locale: () => string) {
 	 */
 	let vigente = 0;
 
-	/** Ordenados con el comparador del idioma de la sesión. Ver `agenda.ts`. */
-	const enOrden = computed(() => ordenados(contactos.value, locale()));
-	const visibles = computed(() => buscados(enOrden.value, consulta.value));
+	/** Ordenados con el comparador del idioma de la sesión. Ver `address-book.ts`. */
+	const enOrden = computed(() => sortContacts(contactos.value, locale()));
+	const visibles = computed(() => searchContacts(enOrden.value, consulta.value));
 
 	async function cargar() {
 		const mio = ++vigente;
@@ -73,7 +73,7 @@ export function useAgenda(locale: () => string) {
 			}
 			cuentas.value = conectadas;
 
-			const juntados: Contacto[] = [];
+			const juntados: Contact[] = [];
 			for (const cuenta of conectadas) {
 				if (cuenta.necesita_reconectarse) {
 					// No se intenta: el servicio ya sabe que la credencial no
@@ -128,7 +128,7 @@ export function useAgenda(locale: () => string) {
 		}
 	}
 
-	function elegir(contacto: Contacto) {
+	function elegir(contacto: Contact) {
 		elegido.value = contacto;
 	}
 
