@@ -35,7 +35,7 @@ gtk = "0.18"
 tauri-plugin-vsk-journal = "2"
 # Para hablar con vasak-accounts, que es de donde salen las libretas.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
-tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time"] }
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "fs", "io-util"] }
 # CardDAV es HTTP con dos métodos más. rustls: es Rust puro, así que no suma
 # bibliotecas compartidas al paquete.
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
@@ -46,6 +46,14 @@ base64 = "0.23"
 # mismo motor de codificaciones de Firefox, así que no suma ninguna biblioteca
 # compartida al paquete.
 encoding_rs = "0.8"
+# Las fotos que están afuera de la tarjeta se bajan una vez y se guardan en la
+# caché de XDG (`photos.rs`): `dirs` para la carpeta —ya resuelve que una ruta
+# relativa en XDG_CACHE_HOME se ignora—, `sha2` para el nombre del archivo y
+# `url` para mirar la dirección antes de pedirla. Los tres son Rust puro y ya
+# estaban en el árbol por tauri y reqwest: no suman bibliotecas compartidas.
+dirs = "7"
+sha2 = "0.11"
+url = "2"
 
 [dev-dependencies]
 # Sólo para el test que valida los catálogos de idioma: el plugin los parsea en

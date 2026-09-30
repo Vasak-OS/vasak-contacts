@@ -113,7 +113,9 @@ mod tests {
             permisos.iter().any(|p| p == "core:window:allow-show"),
             "falta «core:window:allow-show»: {permisos:?}"
         );
-        let ventanas = capacidades["windows"].as_array().expect("tiene que haber ventanas");
+        let ventanas = capacidades["windows"]
+            .as_array()
+            .expect("tiene que haber ventanas");
         assert!(
             ventanas.iter().any(|v| v == super::VENTANA),
             "la capacidad tiene que cubrir la ventana «{}»: {ventanas:?}",
