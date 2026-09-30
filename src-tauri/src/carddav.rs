@@ -14,9 +14,12 @@
 //!
 //! ── Lo que **no** hace todavía ──────────────────────────────────────────────
 //!
-//! No crea, no edita y no borra. Y no muestra las fotos: una `PHOTO` en base64
-//! multiplica por diez el tamaño de la respuesta, y traerla para una lista donde
-//! no se ve sería gastar la conexión de la persona en nada.
+//! No crea, no edita y no borra: escribir es Vasak-OS/vasak-contacts#2.
+//!
+//! Las fotos vienen con la tarjeta —el `address-data` la trae entera— y las
+//! lee `vcard::photo`, con su tope. Las que la tarjeta trae como una dirección
+//! externa **no se piden acá**: las baja `photos.rs` una sola vez, cuando hace
+//! falta mostrarlas.
 //!
 //! ── Qué se le cree al servidor ──────────────────────────────────────────────
 //!
@@ -37,7 +40,7 @@ use serde::Serialize;
 
 use crate::cuentas::{AuthKind, Credencial};
 use crate::dav::{self, DavError, Limits};
-use crate::vcard::{self, Contacto};
+use crate::vcard::{self, Contact};
 
 const TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -297,7 +300,7 @@ pub async fn libretas(credencial: &crate::cuentas::Credencial) -> Result<Vec<Lib
 pub async fn contactos(
     credencial: &crate::cuentas::Credencial,
     libreta: &str,
-) -> Result<Vec<Contacto>, String> {
+) -> Result<Vec<Contact>, String> {
     let home = direccion_de(credencial)?;
     let pedido = dav::resolve_href(&home, libreta).map_err(|e| e.to_string())?;
     if pedido.origin() != home.origin() {
@@ -309,7 +312,7 @@ pub async fn contactos(
     // absoluta casi siempre, pero un `href` relativo —`ana.vcf`, que aparece de
     // vez en cuando— resuelve contra la base: contra la de la cuenta daba
     // `https://host/dav/ana.vcf` en vez de
-    // `https://host/dav/addressbooks/.../personal/ana.vcf`, y `Contacto.url`
+    // `https://host/dav/addressbooks/.../personal/ana.vcf`, y `Contact.url`
     // existe justamente para volver a buscar la tarjeta, así que después no la
     // encontraba.
     //
@@ -337,9 +340,9 @@ pub async fn contactos(
         // Una respuesta puede traer varias tarjetas en el mismo bloque: hay
         // libretas exportadas que son un solo archivo con miles.
         .flat_map(|(url, datos)| {
-            vcard::tarjetas_de(&datos)
+            vcard::split_cards(&datos)
                 .into_iter()
-                .filter_map(move |t| vcard::contacto_de(&t, &url))
+                .filter_map(move |t| vcard::contact_from(&t, &url))
         })
         .collect())
 }
@@ -472,7 +475,7 @@ mod tests {
     /// Es el arreglo del hallazgo de revisión: `contactos()` pedía la `REPORT` a
     /// la libreta pero resolvía los `href` contra `home`, así que un `ana.vcf`
     /// relativo —que los servidores mandan de vez en cuando— quedaba en
-    /// `https://host/dav/ana.vcf`. Y `Contacto.url` existe para volver a buscar
+    /// `https://host/dav/ana.vcf`. Y `Contact.url` existe para volver a buscar
     /// la tarjeta, así que después no la encontraba.
     ///
     /// Todos los fixtures de acá usan un `href` **absoluto**, y contra cualquier

@@ -42,10 +42,28 @@ export function useConfigStore() {
  */
 export const CATALOGO = { es: { 'vsk.prueba': 'Traducido' } };
 
-export async function invoke(comando: string) {
+/**
+ * Lo que contestan los comandos propios de la aplicación, cuando una prueba lo
+ * dice, y lo que se le pidió a cada uno. Por el mismo motivo que el catálogo:
+ * un solo `invoke` doblado para toda la suite.
+ */
+const commandAnswers = new Map<string, (args: Record<string, unknown> | undefined) => unknown>();
+export const invokedCommands: { command: string; args: Record<string, unknown> | undefined }[] = [];
+
+/** Pone lo que contesta un comando. */
+export function answerCommand(
+	command: string,
+	answer: (args: Record<string, unknown> | undefined) => unknown
+) {
+	commandAnswers.set(command, answer);
+}
+
+export async function invoke(comando: string, args?: Record<string, unknown>) {
 	if (comando === 'plugin:i18n|load_translations') return CATALOGO;
 	if (comando === 'plugin:i18n|get_locale') return 'es';
-	return undefined;
+	invokedCommands.push({ command: comando, args });
+	const answer = commandAnswers.get(comando);
+	return answer ? answer(args) : undefined;
 }
 
 /** Los oyentes registrados por evento, para poder dispararlos desde una prueba. */
@@ -99,6 +117,8 @@ export async function getSymbolSource(nombre: string) {
 
 export function olvidarTodo() {
 	laVentanaRecibio.length = 0;
+	commandAnswers.clear();
+	invokedCommands.length = 0;
 	configuracion = {};
 	listeners.clear();
 	themeIcons.clear();

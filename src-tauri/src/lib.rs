@@ -8,6 +8,7 @@ mod comandos;
 mod cuentas;
 mod dav;
 mod locales;
+mod photos;
 mod vcard;
 mod ventana;
 
@@ -37,6 +38,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             comandos::listar_cuentas,
             comandos::contactos_de_la_cuenta,
+            photos::contact_photo,
         ])
         .setup(|app| {
             // La ventana nace oculta y la muestra el frontend cuando ya tiene los

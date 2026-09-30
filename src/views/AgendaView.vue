@@ -2,9 +2,9 @@
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, onMounted } from 'vue';
+import ContactDetailComponent from '@/components/agenda/ContactDetailComponent.vue';
+import ContactListComponent from '@/components/agenda/ContactListComponent.vue';
 import CuentasComponent from '@/components/agenda/CuentasComponent.vue';
-import DetalleComponent from '@/components/agenda/DetalleComponent.vue';
-import ListaComponent from '@/components/agenda/ListaComponent.vue';
 import { useAgenda } from '@/composables/use-agenda';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
@@ -104,12 +104,12 @@ onMounted(cargar);
     <!-- Las secciones separadas por aire y no por líneas: cada una es una
          superficie redondeada, como los paneles del escritorio. -->
     <CuentasComponent :cuentas="cuentas" :avisos="avisos" />
-    <ListaComponent
-      :contactos="visibles"
-      :elegido="elegido"
-      :consulta="consulta"
-      :cargando="cargando"
-      @elegir="elegir" />
-    <DetalleComponent :contacto="elegido" />
+    <ContactListComponent
+      :contacts="visibles"
+      :selected="elegido"
+      :query="consulta"
+      :loading="cargando"
+      @select="elegir" />
+    <ContactDetailComponent :contact="elegido" />
   </WindowAppLayout>
 </template>

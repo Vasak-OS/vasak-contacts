@@ -11,7 +11,7 @@ use serde::Serialize;
 
 use crate::carddav;
 use crate::cuentas::{self, CuentaConLibreta};
-use crate::vcard::Contacto;
+use crate::vcard::Contact;
 
 /// Lo que se pudo leer de una cuenta, y lo que no.
 ///
@@ -21,7 +21,7 @@ use crate::vcard::Contacto;
 #[derive(Debug, Clone, Serialize, Default, PartialEq, Eq)]
 pub struct LecturaDeCuenta {
     pub libretas: Vec<carddav::Libreta>,
-    pub contactos: Vec<Contacto>,
+    pub contactos: Vec<Contact>,
     /// Las libretas que no se pudieron leer, con el motivo. Vacío si salió todo
     /// bien.
     pub fallos: Vec<String>,
@@ -73,12 +73,12 @@ pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuent
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vcard::Contacto;
+    use crate::vcard::Contact;
 
-    fn contacto(orden: &str) -> Contacto {
-        Contacto {
-            orden: orden.into(),
-            nombre: orden.into(),
+    fn contact(sort_key: &str) -> Contact {
+        Contact {
+            sort_key: sort_key.into(),
+            name: sort_key.into(),
             ..Default::default()
         }
     }
@@ -89,11 +89,11 @@ mod tests {
     #[test]
     fn cada_contacto_sale_con_su_clave_de_orden() {
         let lectura = LecturaDeCuenta {
-            contactos: vec![contacto("Álvarez, Ana")],
+            contactos: vec![contact("Álvarez, Ana")],
             ..Default::default()
         };
         let json = serde_json::to_value(&lectura).unwrap();
-        assert_eq!(json["contactos"][0]["orden"], "Álvarez, Ana");
+        assert_eq!(json["contactos"][0]["sort_key"], "Álvarez, Ana");
     }
 
     /// Una libreta rota no puede vaciar la agenda: la persona tiene que ver las
@@ -105,7 +105,7 @@ mod tests {
                 url: "https://x/a/".into(),
                 nombre: "Personal".into(),
             }],
-            contactos: vec![contacto("Pérez, Ana")],
+            contactos: vec![contact("Pérez, Ana")],
             fallos: vec!["Trabajo: el servidor respondió 500".into()],
         };
 

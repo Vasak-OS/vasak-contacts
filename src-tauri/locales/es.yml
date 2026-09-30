@@ -32,15 +32,51 @@ lista:
   otros: Otros
   cuantosOne: "{0} contacto"
   cuantosOther: "{0} contactos"
-contacto:
-  elegiUno: Elegí un contacto para verlo
-  correos: Correo
-  telefonos: Teléfono
-  organizacion: Dónde trabaja
-  notas: Notas
-  escribir: Escribir
-  llamar: Llamar
-  copiar: Copiar
-  copiado: Copiado
+contact:
+  pickOne: Elegí un contacto para verlo
+  emails: Correo
+  phones: Teléfono
+  notes: Notas
+  write: Escribir
+  call: Llamar
+  copy: Copiar
+  copied: Copiado
+  open: Abrir
   # Se dice porque cambia lo que la persona puede esperar de la ventana.
-  soloLectura: Esta versión muestra los contactos; editarlos viene después.
+  readOnly: Esta versión muestra los contactos; editarlos viene después.
+  # `{0}` es el nombre del contacto.
+  photoAlt: "Foto de {0}"
+  photoTooLarge: La foto de esta tarjeta es demasiado grande para mostrarla.
+  photoInsecure: La foto está en una dirección sin cifrar y no se descarga.
+  addresses: Dirección
+  dates: Fechas
+  birthday: Cumpleaños
+  anniversary: Aniversario
+  otherDate: Fecha
+  websites: Web
+  social: Redes y mensajería
+  categories: Categorías
+  more: Más datos
+  languages: Idiomas
+  timeZone: Zona horaria
+  location: Ubicación
+  kinds:
+    org: Organización
+    group: Grupo
+    location: Lugar
+  # Las etiquetas de siempre. Las que escribió la persona se muestran como
+  # vinieron.
+  labels:
+    home: casa
+    work: trabajo
+    cell: celular
+    mobile: celular
+    main: principal
+    fax: fax
+    pager: buscapersonas
+    other: otro
+    homepage: página personal
+    blog: blog
+    profile: perfil
+    anniversary: aniversario
+    school: escuela
