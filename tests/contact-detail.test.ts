@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, test } from 'bun:test';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
-import ContactDetailComponent from '@/components/agenda/ContactDetailComponent.vue';
+import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import { type Contact, emptyContact } from '@/tools/address-book';
 import { answerCommand, invokedCommands, olvidarTodo } from './dobles';
 
@@ -18,7 +18,7 @@ const PNG = 'data:image/png;base64,iVBORw0KGgo=';
 let wrapper: VueWrapper | null = null;
 
 function show(contact: Partial<Contact>) {
-	wrapper = mount(ContactDetailComponent, {
+	wrapper = mount(ContactDetail, {
 		props: { contact: emptyContact({ name: 'Ana Pérez', url: 'https://x/ana.vcf', ...contact }) },
 	});
 	return wrapper;
@@ -221,8 +221,8 @@ describe('los textos de la ficha', () => {
 	test('todas las claves que usa la ficha existen en los dos idiomas', async () => {
 		const sources = await Promise.all(
 			[
-				'../src/components/agenda/ContactDetailComponent.vue',
-				'../src/components/agenda/ContactPhotoComponent.vue',
+				'../src/components/contacts/ContactDetail.vue',
+				'../src/components/contacts/ContactPhoto.vue',
 				'../src/tools/contact-fields.ts',
 			].map((p) => Bun.file(`${import.meta.dir}/${p}`).text())
 		);

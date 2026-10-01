@@ -11,9 +11,9 @@
  */
 
 import { afterEach, beforeAll, describe, expect, test } from 'bun:test';
-import { AlertMessage, CLASES_POR_TONO, olvidarLosIconosDelTema } from '@vasakgroup/vue-libvasak';
+import { AlertMessage, olvidarLosIconosDelTema, TONE_CLASSES } from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
-import CuentasComponent from '@/components/agenda/CuentasComponent.vue';
+import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
 import { olvidarTodo } from './dobles';
 
 const RAIZ = new URL('..', import.meta.url).pathname;
@@ -26,7 +26,7 @@ function anotar<T extends VueWrapper>(vista: T): T {
 }
 
 beforeAll(async () => {
-	const calentar = mount(CuentasComponent, { props: { cuentas: [], avisos: [] } });
+	const calentar = mount(AccountsPanel, { props: { accounts: [], notices: [] } });
 	calentar.unmount();
 }, 60_000);
 
@@ -38,7 +38,7 @@ afterEach(() => {
 });
 
 function cuentas(avisos: string[] = []) {
-	return anotar(mount(CuentasComponent, { props: { cuentas: [], avisos } }));
+	return anotar(mount(AccountsPanel, { props: { accounts: [], notices: avisos } }));
 }
 
 describe('el aviso de lo que no se pudo leer', () => {
@@ -59,7 +59,7 @@ describe('el aviso de lo que no se pudo leer', () => {
 
 		expect(aviso.props('tone')).toBe('warning');
 		expect(aviso.attributes('role')).toBe('status');
-		expect(aviso.classes().join(' ')).toContain(CLASES_POR_TONO.warning.split(' ')[0]);
+		expect(aviso.classes().join(' ')).toContain(TONE_CLASSES.warning.split(' ')[0]);
 	});
 
 	test('y sin avisos no se dibuja nada', async () => {

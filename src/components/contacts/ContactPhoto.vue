@@ -53,7 +53,7 @@ const loadPhoto = createPhotoLoader(invoke);
 
 <template>
   <div
-    class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-full bg-ui-surface font-title text-tx-muted text-xl"
+    class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-corner-full bg-ui-surface font-title text-tx-muted text-xl"
     data-testid="contact-photo">
     <!-- Redonda y del mismo tamaño con foto y sin ella, para que la cabecera
          no salte cuando la foto llega. El comentario va adentro: arriba de la

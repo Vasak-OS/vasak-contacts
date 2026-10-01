@@ -16,7 +16,7 @@ import { afterEach, beforeEach, describe, expect, jest, test } from 'bun:test';
 import { olvidarLosIconosDelTema } from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import AgendaView from '@/views/AgendaView.vue';
+import AddressBookView from '@/views/AddressBookView.vue';
 import { emit, olvidarTodo, setThemeIcon } from './dobles';
 
 /**
@@ -56,7 +56,7 @@ async function advancePastReload() {
 let mounted: VueWrapper | null = null;
 
 function openAgenda() {
-	mounted = mount(AgendaView);
+	mounted = mount(AddressBookView);
 	return mounted;
 }
 
