@@ -1,5 +1,6 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { EmptyState, ListRow, LoadingState, Panel, SectionHeading } from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
 import { type Contact, initialOf } from '@/tools/address-book';
 import { interpolar } from '@/tools/interpolar';
@@ -44,43 +45,41 @@ function titleOf(initial: string): string {
 </script>
 
 <template>
-  <div class="flex w-72 shrink-0 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
-    <p v-if="loading && contacts.length === 0" class="p-3 text-tx-muted text-sm" role="status">
-      {{ t('lista.cargando') }}
-    </p>
+  <Panel padding="none" scroll class="w-72 max-w-[35%] shrink-0">
+    <!-- El ancho es el de siempre (`w-72`) mientras haya lugar, pero nunca más
+         del 35 % de la fila, por lo mismo que el panel de cuentas: desde unos
+         830 px de fila mide igual que antes, y por debajo le deja lugar a la
+         ficha en vez de taparla. -->
+    <LoadingState v-if="loading && contacts.length === 0" size="sm" :label="t('lista.cargando')" />
 
     <!-- Una búsqueda sin resultados dice **qué** no se encontró. «No hay nada»
          a secas deja a la persona sin saber si escribió mal o si de verdad no
          tiene a nadie anotado. -->
-    <p v-else-if="contacts.length === 0 && query.trim()" class="p-3 text-tx-muted text-sm">
-      {{ interpolar(t('lista.sinResultados'), query) }}
-    </p>
-    <p v-else-if="contacts.length === 0" class="p-3 text-tx-muted text-sm">
-      {{ t('lista.vacia') }}
-    </p>
+    <EmptyState
+      v-else-if="contacts.length === 0 && query.trim()"
+      size="sm"
+      icon=""
+      :title="interpolar(t('lista.sinResultados'), query)" />
+    <EmptyState v-else-if="contacts.length === 0" size="sm" icon="" :title="t('lista.vacia')" />
 
     <template v-else>
       <section v-for="group in groups" :key="group.initial">
-        <h3
-          class="sticky top-0 bg-ui-bg/95 px-3 py-1 font-medium text-tx-muted text-xs uppercase">
-          {{ titleOf(group.initial) }}
-        </h3>
-        <ul>
+        <!-- Pegado arriba al desplazar, con el fondo opaco del panel: la copia
+             de acá llevaba `bg-ui-bg/95`, el fondo de la ventana encima del
+             panel, y el contenido se transparentaba por debajo. -->
+        <SectionHeading :title="titleOf(group.initial)" as="h3" sticky surface="panel" class="px-3" />
+        <ul class="flex flex-col px-1">
           <li v-for="contact in group.contacts" :key="contact.url || contact.uid">
-            <button
-              type="button"
-              class="flex w-full flex-col gap-0.5 px-3 py-1.5 text-left hover:bg-ui-surface/60"
-              :class="{ 'bg-ui-surface': contact.url === selected?.url }"
-              :aria-current="contact.url === selected?.url ? 'true' : undefined"
-              @click="emit('select', contact)">
-              <span class="truncate text-sm">{{ contact.name || t('lista.sinNombre') }}</span>
-              <span v-if="contact.organization" class="truncate text-tx-muted text-xs">
-                {{ contact.organization }}
-              </span>
-            </button>
+            <ListRow
+              role="button"
+              truncate
+              :title="contact.name || t('lista.sinNombre')"
+              :description="contact.organization || undefined"
+              :selected="contact.url === selected?.url"
+              @click="emit('select', contact)" />
           </li>
         </ul>
       </section>
     </template>
-  </div>
+  </Panel>
 </template>

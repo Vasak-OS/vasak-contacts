@@ -1,7 +1,7 @@
 {
   "name": "vasak-contacts",
   "private": true,
-  "version": "0.6.0",
+  "version": "0.7.0",
   "type": "module",
   "scripts": {
     "dev": "bunx --bun vite",
@@ -22,7 +22,7 @@
     "@vasakgroup/plugin-vsk-contextual-menu": "^2.0.3",
     "@vasakgroup/plugin-vsk-journal": "^2.0.1",
     "@vasakgroup/tauri-plugin-i18n": "^2.3.1",
-    "@vasakgroup/vue-libvasak": "^1.10.0",
+    "@vasakgroup/vue-libvasak": "^2.1.0",
     "pinia": "^3.0.4",
     "vue": "^3.5.43"
   },
@@ -37,14 +37,13 @@
     "happy-dom": "^20.14.5",
     "tailwindcss": "^4.3.3",
     "typescript": "^5.9.3",
-    "vite": "^7.3.6",
+    "vite": "^8.3.2",
     "vue-tsc": "^3.3.11"
   },
   "vasak": {
     "bibliotecasAtrasadas": {
       "pinia": "La 4 es un salto mayor del andamiaje que comparten catorce aplicaciones del taller (decisión en vasak-file-manager#90): va en su propio PR, coordinado con el resto. Se saca cuando el taller entero pase a pinia 4.",
       "typescript": "La 7 es el compilador nativo y no trae `typescript/lib/tsc`, que vue-tsc 3.3 busca ahí: el typecheck se cae antes de mirar un archivo. Se saca cuando vue-tsc declare soporte de TypeScript 7.",
-      "vite": "La 8 cambia rollup por rolldown: es un salto mayor del andamiaje de compilación, y lo que hay que verificar —que la ventana empaquetada abra y cargue igual— no lo dice ninguna prueba automática. Va en su propio PR; se saca cuando se pruebe la aplicación compilada con vite 8 dentro de la sesión.",
       "reqwest (crate de Rust)": "Se queda en 0.12, la misma que usa el servicio vasak-accounts (oauth2 5 todavía pide ^0.12), y en 0.13 el TLS de rustls pasa a aws-lc-rs, que se compila en C. Se saca cuando vasak-accounts suba a 0.13.",
       "gtk (crate de Rust)": "Va atado a la 0.18 que usan tauri y webkit2gtk: otra versión metería una segunda copia de los enlaces a GTK. Se saca cuando tauri suba de gtk-rs.",
       "sha2 (crate de Rust)": "Se queda en la 0.10, la que ya trae tauri: la 0.11 metería una segunda copia, y para el nombre de un archivo de caché no cambia nada. Se saca cuando tauri suba a sha2 0.11."

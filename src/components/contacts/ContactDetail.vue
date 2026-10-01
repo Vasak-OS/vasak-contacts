@@ -1,8 +1,9 @@
 <script lang="ts" setup>
 import { open as openWithSystem } from '@tauri-apps/plugin-shell';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { ActionButton, Badge, Panel, SectionHeading } from '@vasakgroup/vue-libvasak';
 import { computed, ref } from 'vue';
-import ContactPhotoComponent from '@/components/agenda/ContactPhotoComponent.vue';
+import ContactPhoto from '@/components/contacts/ContactPhoto.vue';
 import type { Contact } from '@/tools/address-book';
 import {
 	addressLines,
@@ -144,14 +145,21 @@ const kindLabel = computed(() => {
 </script>
 
 <template>
-  <section class="flex min-w-0 flex-1 flex-col overflow-y-auto rounded-corner border border-ui-border bg-ui-surface/45">
+  <Panel as="section" padding="none" scroll class="@container flex-1">
+    <!-- Contenedor de consultas: en una ventana angosta la ficha puede quedar
+         en unos 130 px, y ahí la cabecera pone la foto arriba del nombre y cada
+         fila pasa los botones abajo del valor, en vez de partir las palabras
+         letra por letra. Desde 12rem de ficha —la ventana de 600 px ya los
+         tiene— se ve igual que siempre. El comentario va adentro: arriba de la
+         raíz la volvería un fragmento. -->
     <p v-if="!contact" class="p-4 text-tx-muted text-sm">{{ t('contact.pickOne') }}</p>
 
     <template v-else>
-      <header class="flex items-center gap-4 border-ui-border border-b p-4">
-        <ContactPhotoComponent :contact="contact" />
+      <header
+        class="flex flex-col items-start gap-4 border-ui-line-weak border-b p-4 @min-[12rem]:flex-row @min-[12rem]:items-center">
+        <ContactPhoto :contact="contact" />
         <div class="flex min-w-0 flex-col gap-1">
-          <h1 class="font-title text-xl">{{ contact.name || t('lista.sinNombre') }}</h1>
+          <h1 class="break-words font-title text-xl">{{ contact.name || t('lista.sinNombre') }}</h1>
           <p v-if="contact.nickname" class="text-tx-muted text-sm" data-testid="nickname">
             «{{ contact.nickname }}»
           </p>
@@ -162,11 +170,10 @@ const kindLabel = computed(() => {
           </p>
           <p v-if="kindLabel" class="text-tx-muted text-xs">{{ kindLabel }}</p>
           <ul v-if="contact.categories.length > 0" class="flex flex-wrap gap-1" :aria-label="t('contact.categories')">
-            <li
-              v-for="category in contact.categories"
-              :key="category"
-              class="rounded-corner-sm border border-ui-border px-1.5 text-tx-muted text-xs">
-              {{ category }}
+            <!-- Una insignia de contorno: es una etiqueta de quien hizo la tarjeta,
+                 no un estado, y no tiene que competir con el nombre. -->
+            <li v-for="category in contact.categories" :key="category" class="flex min-w-0">
+              <Badge variant="outline" :label="category" />
             </li>
           </ul>
         </div>
@@ -180,141 +187,141 @@ const kindLabel = computed(() => {
              «celular», y con claves repetidas Vue reusa la fila equivocada al
              actualizar. -->
         <section v-if="contact.emails.length > 0" class="flex flex-col gap-1">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.emails') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.emails')" />
           <div
             v-for="(email, i) in contact.emails"
             :key="`${i}-${email.label}-${email.value}`"
-            class="flex items-center gap-2">
-            <span class="min-w-0 flex-1 truncate text-sm">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
               <span class="text-tx-muted text-xs">{{ labelPrefix(email.label) }}</span>{{ email.value }}
             </span>
-            <button
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-sm hover:bg-ui-surface"
-              @click="openLink(enlaceDeCorreo(email.value))">
-              {{ t('contact.write') }}
-            </button>
-            <button
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-tx-muted text-sm hover:bg-ui-surface"
-              @click="copy(email.value)">
-              {{ copied === email.value ? t('contact.copied') : t('contact.copy') }}
-            </button>
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="t('contact.write')"
+              @click="openLink(enlaceDeCorreo(email.value))" />
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="copied === email.value ? t('contact.copied') : t('contact.copy')"
+              @click="copy(email.value)" />
           </div>
         </section>
 
         <section v-if="contact.phones.length > 0" class="flex flex-col gap-1">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.phones') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.phones')" />
           <div
             v-for="(phone, i) in contact.phones"
             :key="`${i}-${phone.label}-${phone.value}`"
-            class="flex items-center gap-2">
-            <span class="min-w-0 flex-1 truncate text-sm">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
               <span class="text-tx-muted text-xs">{{ labelPrefix(phone.label) }}</span>{{ phone.value }}
             </span>
             <!-- Sin botón si el «número» no tiene dígitos: uno que no hace
                  nada al apretarlo es peor que no estar. -->
-            <button
+            <ActionButton
+              class="shrink-0"
               v-if="enlaceDeTelefono(phone.value)"
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-sm hover:bg-ui-surface"
-              @click="openLink(enlaceDeTelefono(phone.value))">
-              {{ t('contact.call') }}
-            </button>
-            <button
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-tx-muted text-sm hover:bg-ui-surface"
-              @click="copy(phone.value)">
-              {{ copied === phone.value ? t('contact.copied') : t('contact.copy') }}
-            </button>
+              variant="ghost"
+              size="sm"
+              :label="t('contact.call')"
+              @click="openLink(enlaceDeTelefono(phone.value))" />
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="copied === phone.value ? t('contact.copied') : t('contact.copy')"
+              @click="copy(phone.value)" />
           </div>
         </section>
 
         <!-- La dirección en renglones, en un `address` y no en un párrafo: es
              lo que es, y un lector de pantalla lo dice. -->
         <section v-if="contact.addresses.length > 0" class="flex flex-col gap-2" data-testid="addresses">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.addresses') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.addresses')" />
           <div
             v-for="(address, i) in contact.addresses"
             :key="`${i}-${address.label}-${address.street}`"
-            class="flex items-start gap-2">
-            <div class="min-w-0 flex-1 text-sm">
+            class="flex items-start gap-2 @max-[12rem]:flex-wrap">
+            <div class="min-w-0 flex-1 text-sm @max-[12rem]:basis-full">
               <span v-if="address.label" class="text-tx-muted text-xs">{{ labelText(address.label) }}</span>
               <address class="not-italic">
                 <span v-for="(line, j) in addressLines(address)" :key="j" class="block">{{ line }}</span>
               </address>
             </div>
-            <button
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-tx-muted text-sm hover:bg-ui-surface"
-              @click="copy(addressLines(address).join('\n'))">
-              {{ copied === addressLines(address).join('\n') ? t('contact.copied') : t('contact.copy') }}
-            </button>
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="copied === addressLines(address).join('\n') ? t('contact.copied') : t('contact.copy')"
+              @click="copy(addressLines(address).join('\n'))" />
           </div>
         </section>
 
         <section v-if="dates.length > 0" class="flex flex-col gap-1" data-testid="dates">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.dates') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.dates')" />
           <p v-for="date in dates" :key="date.key" class="text-sm">
             <span class="text-tx-muted text-xs">{{ date.label }} · </span>{{ date.text }}
           </p>
         </section>
 
         <section v-if="contact.websites.length > 0" class="flex flex-col gap-1" data-testid="websites">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.websites') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.websites')" />
           <div
             v-for="(site, i) in contact.websites"
             :key="`${i}-${site.value}`"
-            class="flex items-center gap-2">
-            <span class="min-w-0 flex-1 truncate text-sm">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
               <span class="text-tx-muted text-xs">{{ labelPrefix(site.label) }}</span>{{ site.value }}
             </span>
             <!-- Sólo si es una web de verdad: una `javascript:` no se abre. -->
-            <button
+            <ActionButton
+              class="shrink-0"
               v-if="webLink(site.value)"
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-sm hover:bg-ui-surface"
-              @click="openLink(webLink(site.value))">
-              {{ t('contact.open') }}
-            </button>
-            <button
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-tx-muted text-sm hover:bg-ui-surface"
-              @click="copy(site.value)">
-              {{ copied === site.value ? t('contact.copied') : t('contact.copy') }}
-            </button>
+              variant="ghost"
+              size="sm"
+              :label="t('contact.open')"
+              @click="openLink(webLink(site.value))" />
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="copied === site.value ? t('contact.copied') : t('contact.copy')"
+              @click="copy(site.value)" />
           </div>
         </section>
 
         <section v-if="contact.social.length > 0" class="flex flex-col gap-1" data-testid="social">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.social') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.social')" />
           <div
             v-for="(profile, i) in contact.social"
             :key="`${i}-${profile.service}-${profile.handle}`"
-            class="flex items-center gap-2">
-            <span class="min-w-0 flex-1 truncate text-sm">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
               <span class="text-tx-muted text-xs">{{
                 serviceName(profile.service) ? `${serviceName(profile.service)} · ` : labelPrefix(profile.label)
               }}</span>{{ profile.handle }}
             </span>
-            <button
+            <ActionButton
+              class="shrink-0"
               v-if="webLink(profile.url)"
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-sm hover:bg-ui-surface"
-              @click="openLink(webLink(profile.url))">
-              {{ t('contact.open') }}
-            </button>
-            <button
-              type="button"
-              class="rounded-corner px-2 py-0.5 text-tx-muted text-sm hover:bg-ui-surface"
-              @click="copy(profile.handle)">
-              {{ copied === profile.handle ? t('contact.copied') : t('contact.copy') }}
-            </button>
+              variant="ghost"
+              size="sm"
+              :label="t('contact.open')"
+              @click="openLink(webLink(profile.url))" />
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="copied === profile.handle ? t('contact.copied') : t('contact.copy')"
+              @click="copy(profile.handle)" />
           </div>
         </section>
 
         <section v-if="contact.notes.trim()" class="flex flex-col gap-1">
-          <h2 class="font-medium text-tx-muted text-xs uppercase">{{ t('contact.notes') }}</h2>
+          <SectionHeading as="h2" :title="t('contact.notes')" />
           <!-- `pre-wrap` y no HTML: la nota la escribió quien hizo la tarjeta,
                que puede ser cualquiera. Se muestra, no se interpreta. -->
           <pre class="whitespace-pre-wrap break-words font-sans text-sm">{{ contact.notes }}</pre>
@@ -323,7 +330,9 @@ const kindLabel = computed(() => {
         <!-- Lo que se consulta poco, plegado: sin esto la ficha de alguien con
              cada campo cargado es un formulario de treinta renglones. -->
         <details v-if="hasMore" class="flex flex-col gap-1" data-testid="more">
-          <summary class="cursor-pointer font-medium text-tx-muted text-xs uppercase">
+          <!-- Plegable propio hasta que la librería traiga `Disclosure` (2.2.0):
+               el título con la misma letra de los `SectionHeading` de arriba. -->
+          <summary class="cursor-pointer font-semibold text-label-xs text-tx-muted uppercase tracking-wider">
             {{ t('contact.more') }}
           </summary>
           <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
@@ -349,5 +358,5 @@ const kindLabel = computed(() => {
         <p class="text-tx-muted text-xs">{{ t('contact.readOnly') }}</p>
       </div>
     </template>
-  </section>
+  </Panel>
 </template>

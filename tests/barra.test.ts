@@ -20,14 +20,14 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { mount, type VueWrapper } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import ContactListComponent from '@/components/agenda/ContactListComponent.vue';
-import AgendaView from '@/views/AgendaView.vue';
+import ContactList from '@/components/contacts/ContactList.vue';
+import AddressBookView from '@/views/AddressBookView.vue';
 import { olvidarTodo } from './dobles';
 
 let vista: VueWrapper | null = null;
 
 function abrir() {
-	vista = mount(AgendaView);
+	vista = mount(AddressBookView);
 	return vista;
 }
 
@@ -150,7 +150,7 @@ describe('el buscador', () => {
 		ventana.findComponent(BarSearch).vm.$emit('update:modelValue', 'pepe');
 		await ventana.vm.$nextTick();
 
-		expect(ventana.findComponent(ContactListComponent).props('query')).toBe('pepe');
+		expect(ventana.findComponent(ContactList).props('query')).toBe('pepe');
 	});
 
 	test('el contador va al lado y cuenta para el centrado', () => {

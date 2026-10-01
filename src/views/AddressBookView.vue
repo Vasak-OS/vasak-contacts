@@ -1,10 +1,10 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
+import { ActionButton, BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, onMounted } from 'vue';
-import ContactDetailComponent from '@/components/agenda/ContactDetailComponent.vue';
-import ContactListComponent from '@/components/agenda/ContactListComponent.vue';
-import CuentasComponent from '@/components/agenda/CuentasComponent.vue';
+import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
+import ContactDetail from '@/components/contacts/ContactDetail.vue';
+import ContactList from '@/components/contacts/ContactList.vue';
 import { useAgenda } from '@/composables/use-agenda';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
@@ -14,7 +14,7 @@ const { cuentas, visibles, elegido, consulta, cargando, avisos, cargar, elegir }
 	() => locale.value
 );
 
-const cuantos = computed(() =>
+const countLabel = computed(() =>
 	interpolar(t(claveSegunCantidad('lista.cuantos', visibles.value.length)), visibles.value.length)
 );
 
@@ -50,15 +50,16 @@ onMounted(cargar);
       <span v-if="cargando" class="text-tx-muted text-xs" role="status">
         {{ t('lista.cargando') }}
       </span>
-      <button
-        type="button"
-        class="rounded-corner border border-ui-border bg-ui-bg/80 p-1 hover:bg-ui-surface disabled:opacity-50"
-        :aria-label="t('lista.actualizar')"
+      <!-- `ghost`, como los tres botones de la ventana que tiene al lado: los
+           cuatro son controles de la barra y se leen como un grupo. -->
+      <ActionButton
+        variant="ghost"
+        label=""
+        icon="view-refresh"
+        :icon-alt="t('lista.actualizar')"
         :title="t('lista.actualizar')"
         :disabled="cargando"
-        @click="cargar()">
-        <ThemeIcon name="view-refresh" type="symbol" :size="24" />
-      </button>
+        @click="cargar()" />
     </template>
 
     <!-- El buscador siempre a la vista: es lo que se usa en una agenda, y
@@ -97,19 +98,19 @@ onMounted(cargar);
              medio carácter, que es por lo que este número colgaba aparte. -->
         <span
           class="min-w-24 whitespace-nowrap text-tx-muted text-xs tabular-nums"
-          aria-live="polite">{{ cuantos }}</span>
+          aria-live="polite">{{ countLabel }}</span>
       </div>
     </template>
 
     <!-- Las secciones separadas por aire y no por líneas: cada una es una
          superficie redondeada, como los paneles del escritorio. -->
-    <CuentasComponent :cuentas="cuentas" :avisos="avisos" />
-    <ContactListComponent
+    <AccountsPanel :accounts="cuentas" :notices="avisos" />
+    <ContactList
       :contacts="visibles"
       :selected="elegido"
       :query="consulta"
       :loading="cargando"
       @select="elegir" />
-    <ContactDetailComponent :contact="elegido" />
+    <ContactDetail :contact="elegido" />
   </WindowAppLayout>
 </template>
