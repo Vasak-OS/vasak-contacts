@@ -1,13 +1,16 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { ActionButton, BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
-import { computed, onMounted } from 'vue';
+import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue';
 import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import ContactList from '@/components/contacts/ContactList.vue';
 import { useAgenda } from '@/composables/use-agenda';
+import { useNarrowRow } from '@/composables/use-narrow-row';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
+import type { Contact } from '@/tools/address-book';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
+import { type Pane, paneClass } from '@/tools/narrow-layout';
 
 const { t, locale } = useI18n();
 const { cuentas, visibles, elegido, consulta, cargando, avisos, cargar, elegir } = useAgenda(
@@ -18,11 +21,44 @@ const countLabel = computed(() =>
 	interpolar(t(claveSegunCantidad('lista.cuantos', visibles.value.length)), visibles.value.length)
 );
 
+/**
+ * La columna que se mira con la ventana angosta (`tools/narrow-layout.ts`).
+ * Se arranca por la lista, que es lo que se viene a buscar; las cuentas
+ * quedan un paso atrás.
+ */
+const pane = ref<Pane>('list');
+
+/**
+ * Si la fila está angosta, para lo que no alcanza con las clases: la barra no
+ * está adentro de la fila. Ahí el buscador se pliega en la lupa —un campo de 70
+ * px se cortaba en «Bu»— y la cuenta de contactos baja a la lista, donde entra.
+ */
+const layout = useTemplateRef<InstanceType<typeof WindowAppLayout>>('layout');
+const { narrow } = useNarrowRow(() => layout.value?.row);
+
+/**
+ * Pasa a otra columna y le lleva el foco a su botón de ir o volver: la que se
+ * deja se oculta, y un foco en algo oculto se pierde. Con la ventana ancha ese
+ * botón no se muestra y el foco se queda donde estaba.
+ */
+async function go(next: Pane) {
+	pane.value = next;
+	await nextTick();
+	const target = document.querySelector<HTMLElement>(`[data-pane="${next}"] [data-nav]`);
+	target?.focus();
+}
+
+/** Elegir a alguien es, además, ir a su ficha. */
+function select(contact: Contact) {
+	elegir(contact);
+	void go('detail');
+}
+
 onMounted(cargar);
 </script>
 
 <template>
-  <WindowAppLayout>
+  <WindowAppLayout ref="layout">
     <!-- El icono de la aplicación, a la izquierda de todo, como en el resto
          del escritorio. Reemplaza al título escrito: el nombre de la ventana ya
          lo dice el icono, y el renglón que ocupaba era el que empujaba al
@@ -86,6 +122,7 @@ onMounted(cargar);
       <div class="m-auto flex items-center gap-2">
         <BarSearch
           v-model="consulta"
+          :collapsed="narrow"
           :placeholder="t('lista.buscar')"
           :label="t('lista.buscar')" />
         <!-- Cuántos hay, que con una búsqueda escrita es cuántos coinciden. Es
@@ -97,6 +134,7 @@ onMounted(cargar);
              «124 contactos» no mueve el campo; sin él, cada dígito lo corría
              medio carácter, que es por lo que este número colgaba aparte. -->
         <span
+          v-if="!narrow"
           class="min-w-24 whitespace-nowrap text-tx-muted text-xs tabular-nums"
           aria-live="polite">{{ countLabel }}</span>
       </div>
@@ -104,13 +142,27 @@ onMounted(cargar);
 
     <!-- Las secciones separadas por aire y no por líneas: cada una es una
          superficie redondeada, como los paneles del escritorio. -->
-    <AccountsPanel :accounts="cuentas" :notices="avisos" />
+    <AccountsPanel
+      :accounts="cuentas"
+      :notices="avisos"
+      v-bind="{ 'data-pane': 'accounts' }"
+      :class="paneClass('accounts', pane)"
+      @forward="go('list')" />
     <ContactList
       :contacts="visibles"
       :selected="elegido"
       :query="consulta"
       :loading="cargando"
-      @select="elegir" />
-    <ContactDetail :contact="elegido" />
+      :count-label="narrow ? countLabel : ''"
+      :wrap="narrow"
+      v-bind="{ 'data-pane': 'list' }"
+      :class="paneClass('list', pane)"
+      @select="select"
+      @back="go('accounts')" />
+    <ContactDetail
+      :contact="elegido"
+      v-bind="{ 'data-pane': 'detail' }"
+      :class="paneClass('detail', pane)"
+      @back="go('list')" />
   </WindowAppLayout>
 </template>

@@ -1,17 +1,36 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { EmptyState, ListRow, LoadingState, Panel, SectionHeading } from '@vasakgroup/vue-libvasak';
+import {
+	ActionButton,
+	EmptyState,
+	ListRow,
+	LoadingState,
+	Panel,
+	SectionHeading,
+} from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
 import { type Contact, initialOf } from '@/tools/address-book';
 import { interpolar } from '@/tools/interpolar';
+import { NARROW_ONLY } from '@/tools/narrow-layout';
 
 const props = defineProps<{
 	contacts: Contact[];
 	selected: Contact | null;
 	query: string;
 	loading: boolean;
+	/**
+	 * Cuántos hay, cuando no entra en la barra (ventana angosta): va al lado
+	 * del botón de volver. Vacío, no se muestra.
+	 */
+	countLabel?: string;
+	/** Con la ventana angosta, los nombres largos se parten en vez de cortarse. */
+	wrap?: boolean;
 }>();
-const emit = defineEmits<{ select: [contact: Contact] }>();
+const emit = defineEmits<{
+	select: [contact: Contact];
+	/** Volver a las cuentas, con la ventana angosta. */
+	back: [];
+}>();
 
 const { t } = useI18n();
 
@@ -50,6 +69,24 @@ function titleOf(initial: string): string {
          del 35 % de la fila, por lo mismo que el panel de cuentas: desde unos
          830 px de fila mide igual que antes, y por debajo le deja lugar a la
          ficha en vez de taparla. -->
+
+    <!-- Con la ventana angosta, una columna por vez: de la lista se vuelve a
+         las cuentas. Con la ventana ancha no existe. -->
+    <div class="flex items-center justify-between gap-2 p-1" :class="NARROW_ONLY">
+      <ActionButton
+        variant="ghost"
+        size="sm"
+        icon="go-previous"
+        icon-type="symbol"
+        :label="t('nav.accounts')"
+        v-bind="{ 'data-nav': '' }"
+        @click="emit('back')" />
+      <span
+        v-if="countLabel"
+        class="min-w-0 px-2 text-right text-tx-muted text-xs tabular-nums"
+        aria-live="polite"
+        data-testid="count">{{ countLabel }}</span>
+    </div>
     <LoadingState v-if="loading && contacts.length === 0" size="sm" :label="t('lista.cargando')" />
 
     <!-- Una búsqueda sin resultados dice **qué** no se encontró. «No hay nada»
@@ -72,7 +109,7 @@ function titleOf(initial: string): string {
           <li v-for="contact in group.contacts" :key="contact.url || contact.uid">
             <ListRow
               role="button"
-              truncate
+              :truncate="!wrap"
               :title="contact.name || t('lista.sinNombre')"
               :description="contact.organization || undefined"
               :selected="contact.url === selected?.url"
