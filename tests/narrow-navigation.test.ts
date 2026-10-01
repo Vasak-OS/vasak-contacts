@@ -148,6 +148,19 @@ describe('una columna por vez', () => {
 		expect(window.findAllComponents(ListRow)[1]?.props('selected')).toBe(true);
 	});
 
+	test('buscar desde la ficha vuelve a la lista, sin sacarle el foco al campo', async () => {
+		const window = await view();
+		await window.findAllComponents(ListRow)[1]?.trigger('click');
+		await flushPromises();
+		const field = window.find('input');
+		(field.element as HTMLInputElement).focus();
+		await field.setValue('bru');
+		await flushPromises();
+
+		expect(shown(window)).toEqual(['list']);
+		expect(document.activeElement).toBe(field.element);
+	});
+
 	test('el foco va al botón de la columna a la que se llega', async () => {
 		// La que se deja se oculta, y un foco en algo oculto se pierde en el
 		// documento: quien usa el teclado tendría que empezar de nuevo.

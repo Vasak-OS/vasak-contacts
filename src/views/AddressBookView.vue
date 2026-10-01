@@ -1,7 +1,7 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import { ActionButton, BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
-import { computed, nextTick, onMounted, ref, useTemplateRef } from 'vue';
+import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import ContactList from '@/components/contacts/ContactList.vue';
@@ -47,6 +47,16 @@ async function go(next: Pane) {
 	const target = document.querySelector<HTMLElement>(`[data-pane="${next}"] [data-nav]`);
 	target?.focus();
 }
+
+/**
+ * Buscar es mirar la lista: con la ventana angosta, escribir en el buscador
+ * desde la ficha o desde las cuentas dejaba los resultados ocultos detrás de
+ * la columna que se estaba viendo. Sin mover el foco, que está en el campo y
+ * ahí se sigue escribiendo. Con la ventana ancha no se nota.
+ */
+watch(consulta, () => {
+	pane.value = 'list';
+});
 
 /** Elegir a alguien es, además, ir a su ficha. */
 function select(contact: Contact) {
