@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
+	ActionButton,
 	AlertMessage,
 	EmptyState,
 	Panel,
@@ -8,8 +9,13 @@ import {
 	StatusDot,
 } from '@vasakgroup/vue-libvasak';
 import type { Cuenta } from '@/composables/use-agenda';
+import { NARROW_ONLY, NARROW_WRAP } from '@/tools/narrow-layout';
 
 defineProps<{ accounts: Cuenta[]; notices: string[] }>();
+const emit = defineEmits<{
+	/** Ir a la lista, con la ventana angosta. */
+	forward: [];
+}>();
 
 const { t } = useI18n();
 </script>
@@ -21,6 +27,20 @@ const { t } = useI18n();
          las dos columnas de la izquierda se quedaban con todo y la ficha
          desaparecía. Desde unos 830 px de fila mide lo mismo que antes. El
          comentario va adentro: arriba de la raíz la volvería un fragmento. -->
+
+    <!-- Con la ventana angosta, una columna por vez: las cuentas son la
+         primera, y de acá se sigue a la lista. Con la ventana ancha no existe. -->
+    <div class="flex justify-end" :class="NARROW_ONLY">
+      <ActionButton
+        variant="ghost"
+        size="sm"
+        icon="go-next"
+        icon-type="symbol"
+        icon-right
+        :label="t('nav.contacts')"
+        v-bind="{ 'data-nav': '' }"
+        @click="emit('forward')" />
+    </div>
 
     <!-- Sin ninguna cuenta, lo que hace falta es decir **qué hacer**. Una lista
          vacía sin explicación se lee como una aplicación rota. -->
@@ -35,7 +55,7 @@ const { t } = useI18n();
       <SectionHeading as="h2" :title="t('cuentas.titulo')" />
       <ul class="flex flex-col gap-1">
         <li v-for="account in accounts" :key="account.id" class="flex min-w-0 flex-col">
-          <span class="truncate text-sm" :title="account.nombre">{{ account.nombre }}</span>
+          <span class="truncate text-sm" :class="NARROW_WRAP" :title="account.nombre">{{ account.nombre }}</span>
           <!-- Una cuenta que hay que reconectar se muestra igual, con el aviso
                al lado: sacarla de la lista se ve como una cuenta borrada, y la
                persona no se enteraría de que le falta hacer algo.

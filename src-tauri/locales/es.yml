@@ -80,3 +80,7 @@ contact:
     profile: perfil
     anniversary: aniversario
     school: escuela
+# Los botones de ir y volver entre columnas, con la ventana angosta.
+nav:
+  accounts: Cuentas
+  contacts: Contactos

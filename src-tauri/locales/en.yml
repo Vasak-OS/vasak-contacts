@@ -65,3 +65,7 @@ contact:
     profile: profile
     anniversary: anniversary
     school: school
+# Los botones de ir y volver entre columnas, con la ventana angosta.
+nav:
+  accounts: Accounts
+  contacts: Contacts

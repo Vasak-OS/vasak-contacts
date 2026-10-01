@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { invoke } from '@tauri-apps/api/core';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
+import { Avatar } from '@vasakgroup/vue-libvasak';
 import { computed, ref, watch } from 'vue';
 import type { Contact } from '@/tools/address-book';
 import { initialsOf } from '@/tools/contact-fields';
@@ -16,7 +17,10 @@ const { t } = useI18n();
  * guardó. **Nunca** la dirección externa.
  */
 const source = ref('');
-/** Si el motor no pudo dibujar la foto: vuelven las iniciales. */
+/**
+ * Si el motor no pudo dibujar la foto. El `Avatar` ya vuelve solo a las
+ * iniciales; esto es para que entonces no se anuncien como «Foto de…».
+ */
 const broken = ref(false);
 
 watch(
@@ -37,9 +41,25 @@ watch(
 	{ immediate: true }
 );
 
-const initials = computed(() => initialsOf(props.contact.name));
+/**
+ * El nombre que se le pasa al `Avatar` para que dibuje **nuestras** iniciales.
+ *
+ * Las de la librería son las de las dos primeras palabras («Ana María Pérez» →
+ * «AM») y toman cualquier carácter («+54 11…» → «+1»); las de los contactos son
+ * la primera y la última, y sólo de palabras que empiezan con una letra. Para
+ * que la cabecera diga lo mismo que antes, se le pasan nuestras iniciales
+ * separadas, y la librería las junta tal cual. Sin iniciales, el icono genérico
+ * del tema en lugar del círculo vacío.
+ */
+const initialsName = computed(() => Array.from(initialsOf(props.contact.name)).join(' '));
+/**
+ * El nombre de la foto, sólo cuando hay foto: las iniciales no son una «Foto
+ * de…», y el nombre ya está escrito al lado.
+ */
 const alt = computed(() =>
-	interpolar(t('contact.photoAlt'), props.contact.name || t('lista.sinNombre'))
+	source.value && !broken.value
+		? interpolar(t('contact.photoAlt'), props.contact.name || t('lista.sinNombre'))
+		: ''
 );
 </script>
 
@@ -49,21 +69,19 @@ const alt = computed(() =>
  * vez por sesión, abra uno su ficha las veces que la abra.
  */
 const loadPhoto = createPhotoLoader(invoke);
+
+// El `Avatar` va en `xl`, la caja de 64 px de siempre: redonda y del mismo
+// tamaño con foto y sin ella, para que la cabecera no salte cuando la foto
+// llega. La nota va acá y no en la plantilla: un comentario arriba de la raíz
+// la volvería un fragmento.
 </script>
 
 <template>
-  <div
-    class="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-corner-full bg-ui-surface font-title text-tx-muted text-xl"
-    data-testid="contact-photo">
-    <!-- Redonda y del mismo tamaño con foto y sin ella, para que la cabecera
-         no salte cuando la foto llega. El comentario va adentro: arriba de la
-         raíz la volvería un fragmento. -->
-    <img
-      v-if="source && !broken"
-      :src="source"
-      :alt="alt"
-      class="size-full object-cover"
-      @error="broken = true" />
-    <span v-else aria-hidden="true">{{ initials }}</span>
-  </div>
+  <Avatar
+    :src="source || null"
+    :name="initialsName"
+    :alt="alt"
+    size="xl"
+    v-bind="{ 'data-testid': 'contact-photo' }"
+    @error="broken = true" />
 </template>

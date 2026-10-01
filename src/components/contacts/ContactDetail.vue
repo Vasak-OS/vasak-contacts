@@ -1,7 +1,15 @@
 <script lang="ts" setup>
 import { open as openWithSystem } from '@tauri-apps/plugin-shell';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { ActionButton, Badge, Panel, SectionHeading } from '@vasakgroup/vue-libvasak';
+import {
+	ActionButton,
+	Badge,
+	Disclosure,
+	Panel,
+	type PropertyItem,
+	PropertyList,
+	SectionHeading,
+} from '@vasakgroup/vue-libvasak';
 import { computed, ref } from 'vue';
 import ContactPhoto from '@/components/contacts/ContactPhoto.vue';
 import type { Contact } from '@/tools/address-book';
@@ -15,8 +23,13 @@ import {
 	webLink,
 } from '@/tools/contact-fields';
 import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
+import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
 
 const props = defineProps<{ contact: Contact | null }>();
+const emit = defineEmits<{
+	/** Volver a la lista, con la ventana angosta. */
+	back: [];
+}>();
 
 const { t, locale } = useI18n();
 
@@ -117,10 +130,36 @@ const dates = computed(() => {
 	return out.filter((d) => d.text);
 });
 
-/** Si hay algo para «Más datos»: lo que se consulta poco va plegado. */
-const hasMore = computed(() => {
+/**
+ * Lo de «Más datos», como pares de nombre y valor para la `PropertyList`: lo
+ * que se consulta poco va plegado. El `id` es para el `key`: dos campos propios
+ * pueden llamarse igual.
+ */
+const moreItems = computed<PropertyItem[]>(() => {
 	const c = props.contact;
-	return !!c && (c.languages.length > 0 || !!c.time_zone || !!c.geo || c.custom_fields.length > 0);
+	if (!c) return [];
+	const out: PropertyItem[] = [];
+	if (c.languages.length > 0) {
+		out.push({
+			id: 'languages',
+			label: t('contact.languages'),
+			value: c.languages.map((tag) => languageName(tag, locale.value)).join(', '),
+		});
+	}
+	if (c.time_zone) {
+		out.push({ id: 'time-zone', label: t('contact.timeZone'), value: c.time_zone });
+	}
+	if (c.geo) {
+		out.push({ id: 'geo', label: t('contact.location'), value: c.geo });
+	}
+	c.custom_fields.forEach((field, i) => {
+		out.push({
+			id: `custom-${i}-${field.name}`,
+			label: customFieldName(field),
+			value: field.value,
+		});
+	});
+	return out;
 });
 
 /** Por qué no se ve la foto, cuando vale la pena decirlo. */
@@ -152,6 +191,21 @@ const kindLabel = computed(() => {
          letra por letra. Desde 12rem de ficha —la ventana de 600 px ya los
          tiene— se ve igual que siempre. El comentario va adentro: arriba de la
          raíz la volvería un fragmento. -->
+
+    <!-- Con la ventana angosta, una columna por vez: de la ficha se vuelve a la
+         lista, que conserva el contacto elegido. Con la ventana ancha no
+         existe, y la ficha mide lo mismo que siempre. -->
+    <div class="flex border-ui-line-weak border-b p-1" :class="NARROW_ONLY">
+      <ActionButton
+        variant="ghost"
+        size="sm"
+        icon="go-previous"
+        icon-type="symbol"
+        :label="t('nav.contacts')"
+        v-bind="{ 'data-nav': '' }"
+        @click="emit('back')" />
+    </div>
+
     <p v-if="!contact" class="p-4 text-tx-muted text-sm">{{ t('contact.pickOne') }}</p>
 
     <template v-else>
@@ -191,8 +245,9 @@ const kindLabel = computed(() => {
           <div
             v-for="(email, i) in contact.emails"
             :key="`${i}-${email.label}-${email.value}`"
-            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
-            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap"
+            :class="NARROW_ROW_WRAP">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full" :class="[NARROW_WRAP, NARROW_FULL_LINE]">
               <span class="text-tx-muted text-xs">{{ labelPrefix(email.label) }}</span>{{ email.value }}
             </span>
             <ActionButton
@@ -215,8 +270,9 @@ const kindLabel = computed(() => {
           <div
             v-for="(phone, i) in contact.phones"
             :key="`${i}-${phone.label}-${phone.value}`"
-            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
-            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap"
+            :class="NARROW_ROW_WRAP">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full" :class="[NARROW_WRAP, NARROW_FULL_LINE]">
               <span class="text-tx-muted text-xs">{{ labelPrefix(phone.label) }}</span>{{ phone.value }}
             </span>
             <!-- Sin botón si el «número» no tiene dígitos: uno que no hace
@@ -244,8 +300,9 @@ const kindLabel = computed(() => {
           <div
             v-for="(address, i) in contact.addresses"
             :key="`${i}-${address.label}-${address.street}`"
-            class="flex items-start gap-2 @max-[12rem]:flex-wrap">
-            <div class="min-w-0 flex-1 text-sm @max-[12rem]:basis-full">
+            class="flex items-start gap-2 @max-[12rem]:flex-wrap"
+            :class="NARROW_ROW_WRAP">
+            <div class="min-w-0 flex-1 text-sm @max-[12rem]:basis-full" :class="NARROW_FULL_LINE">
               <span v-if="address.label" class="text-tx-muted text-xs">{{ labelText(address.label) }}</span>
               <address class="not-italic">
                 <span v-for="(line, j) in addressLines(address)" :key="j" class="block">{{ line }}</span>
@@ -272,8 +329,9 @@ const kindLabel = computed(() => {
           <div
             v-for="(site, i) in contact.websites"
             :key="`${i}-${site.value}`"
-            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
-            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap"
+            :class="NARROW_ROW_WRAP">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full" :class="[NARROW_WRAP, NARROW_FULL_LINE]">
               <span class="text-tx-muted text-xs">{{ labelPrefix(site.label) }}</span>{{ site.value }}
             </span>
             <!-- Sólo si es una web de verdad: una `javascript:` no se abre. -->
@@ -298,8 +356,9 @@ const kindLabel = computed(() => {
           <div
             v-for="(profile, i) in contact.social"
             :key="`${i}-${profile.service}-${profile.handle}`"
-            class="flex items-center gap-2 @max-[12rem]:flex-wrap">
-            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full">
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap"
+            :class="NARROW_ROW_WRAP">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full" :class="[NARROW_WRAP, NARROW_FULL_LINE]">
               <span class="text-tx-muted text-xs">{{
                 serviceName(profile.service) ? `${serviceName(profile.service)} · ` : labelPrefix(profile.label)
               }}</span>{{ profile.handle }}
@@ -328,32 +387,36 @@ const kindLabel = computed(() => {
         </section>
 
         <!-- Lo que se consulta poco, plegado: sin esto la ficha de alguien con
-             cada campo cargado es un formulario de treinta renglones. -->
-        <details v-if="hasMore" class="flex flex-col gap-1" data-testid="more">
-          <!-- Plegable propio hasta que la librería traiga `Disclosure` (2.2.0):
-               el título con la misma letra de los `SectionHeading` de arriba. -->
-          <summary class="cursor-pointer font-semibold text-label-xs text-tx-muted uppercase tracking-wider">
-            {{ t('contact.more') }}
-          </summary>
-          <dl class="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
-            <template v-if="contact.languages.length > 0">
-              <dt class="text-tx-muted">{{ t('contact.languages') }}</dt>
-              <dd>{{ contact.languages.map((tag) => languageName(tag, locale)).join(', ') }}</dd>
+             cada campo cargado es un formulario de treinta renglones.
+
+             Sin que la ficha cambie de largo (`tests/detail-layout.test.ts`):
+             - cerrado, la cabecera del `Disclosure` es un botón de 32 px —el
+               mínimo para tocarlo— y el `summary` de antes medía 20. Los
+               márgenes negativos le devuelven esos 12 px (6 arriba, 6 abajo)
+               y corren la flecha al borde, donde estaba el triángulo;
+             - abierto, la región lleva 4 px más de relleno que el `mt-2` de
+               antes y la `PropertyList` 4 px más entre filas que el `dl`: el
+               margen de abajo crece a 14 px sólo entonces (`data-open`). -->
+        <Disclosure
+          v-if="moreItems.length > 0"
+          :title="t('contact.more')"
+          class="-mx-2 -my-1.5 data-[open=true]:-mb-3.5"
+          v-bind="{ 'data-testid': 'more' }">
+          <!-- Las coordenadas con cifras de ancho fijo, como antes, para que
+               se lean en columna. -->
+          <!-- Con la ventana ancha, nombre y valor en dos columnas como el `dl`
+               de antes, aunque la ficha mida menos de 20rem (a 600 mide unos
+               230 px y la lista ponía el nombre arriba del valor: 12 px más de
+               ficha). Con la ventana angosta la ficha ocupa la fila entera y
+               la lista se acomoda sola. -->
+          <PropertyList
+            :items="moreItems"
+            class="@min-[36rem]/row:[&_dl]:grid-cols-[minmax(0,max-content)_minmax(0,1fr)] @min-[36rem]/row:[&_dl>div]:col-span-2">
+            <template #value="{ item }">
+              <span :class="item.id === 'geo' ? 'tabular-nums' : ''">{{ item.value }}</span>
             </template>
-            <template v-if="contact.time_zone">
-              <dt class="text-tx-muted">{{ t('contact.timeZone') }}</dt>
-              <dd>{{ contact.time_zone }}</dd>
-            </template>
-            <template v-if="contact.geo">
-              <dt class="text-tx-muted">{{ t('contact.location') }}</dt>
-              <dd class="tabular-nums">{{ contact.geo }}</dd>
-            </template>
-            <template v-for="(field, i) in contact.custom_fields" :key="`${i}-${field.name}`">
-              <dt class="text-tx-muted">{{ customFieldName(field) }}</dt>
-              <dd class="break-words">{{ field.value }}</dd>
-            </template>
-          </dl>
-        </details>
+          </PropertyList>
+        </Disclosure>
 
         <p class="text-tx-muted text-xs">{{ t('contact.readOnly') }}</p>
       </div>

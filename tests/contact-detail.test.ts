@@ -113,7 +113,9 @@ describe('los campos nuevos', () => {
 			custom_fields: [{ name: 'X-PHONETIC-FIRST-NAME', label: '', value: 'A-na' }],
 		});
 		const more = view.find('[data-testid="more"]');
-		expect(more.element.tagName).toBe('DETAILS');
+		// Plegado de verdad: la cabecera dice que está cerrado, y lo de adentro
+		// está pero no se ve hasta abrirlo.
+		expect(more.find('button').attributes('aria-expanded')).toBe('false');
 		expect(more.text()).toContain('-0300');
 		expect(more.text()).toContain('Phonetic first name');
 		expect(more.text()).toContain('A-na');
@@ -228,7 +230,9 @@ describe('los textos de la ficha', () => {
 		);
 		const used = new Set<string>();
 		for (const source of sources) {
-			for (const match of source.matchAll(/t\('([\w.]+)'\)/g)) used.add(match[1]);
+			// `t(` suelto: sin el borde, `emit('back')` contaba como la clave
+			// «back».
+			for (const match of source.matchAll(/(?<![\w$])t\('([\w.]+)'\)/g)) used.add(match[1]);
 			// Las que se arman con un nombre: `contact.kinds.${kind}` y las
 			// etiquetas de `labelKey`.
 		}

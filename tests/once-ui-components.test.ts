@@ -197,6 +197,8 @@ describe('la ficha', () => {
 		}).findAllComponents(ActionButton);
 
 		expect(buttons.map((b) => b.props('label'))).toEqual([
+			// El de volver a la lista, que sólo se ve con la ventana angosta.
+			'nav.contacts',
 			'contact.write',
 			'contact.copy',
 			'contact.call',
@@ -215,13 +217,17 @@ describe('la ficha', () => {
 		expect(view.find('header').classes()).toEqual(
 			expect.arrayContaining(['flex-col', '@min-[12rem]:flex-row'])
 		);
-		const row = view.findComponent(ActionButton).element.parentElement;
+		const write = view.findAllComponents(ActionButton).find((b) => b.props('label') === 'contact.write');
+		const row = write?.element.parentElement;
 		expect(row?.className).toContain('@max-[12rem]:flex-wrap');
 	});
 
 	test('«Escribir» sigue abriendo el correo con el sistema', async () => {
 		const view = detail({ emails: [{ label: '', value: 'ana@x.example' }] });
-		await view.findAllComponents(ActionButton)[0]?.trigger('click');
+		await view
+			.findAllComponents(ActionButton)
+			.find((b) => b.props('label') === 'contact.write')
+			?.trigger('click');
 		await flushPromises();
 
 		const opened = invokedCommands.filter((c) => c.command === 'plugin:shell|open').map((c) => c.args?.path);
