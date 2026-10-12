@@ -13,7 +13,7 @@ import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneClass } from '@/tools/narrow-layout';
 
 const { t, locale } = useI18n();
-const { cuentas, visibles, elegido, consulta, cargando, avisos, cargar, actualizar, elegir } =
+const { cuentas, visibles, elegido, consulta, cargando, avisos, cargar, refresh, elegir } =
 	useAgenda(() => locale.value);
 
 const countLabel = computed(() =>
@@ -104,7 +104,7 @@ onMounted(cargar);
         :icon-alt="t('lista.actualizar')"
         :title="t('lista.actualizar')"
         :disabled="cargando"
-        @click="actualizar()" />
+        @click="refresh()" />
     </template>
 
     <!-- El buscador siempre a la vista: es lo que se usa en una agenda, y

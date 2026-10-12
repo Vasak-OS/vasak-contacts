@@ -1,11 +1,11 @@
 /**
  * La agenda lee del almacén del sistema (`vasak-contacts#51`): el botón
  * «Actualizar» le pide una vuelta al sincronizador y relee, y el aviso
- * `contactos-cambio` que pasa el programa relee solo.
+ * `contacts-changed` que pasa el programa relee solo.
  *
  * `invoke` y `listen` son los dobles de `tests/dobles.ts`: lo que hace el
  * programa del otro lado —el bus, el almacén— se prueba en Rust
- * (`src-tauri/src/almacen.rs`).
+ * (`src-tauri/src/store.rs`).
  */
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
@@ -17,17 +17,17 @@ import { emptyContact } from '@/tools/address-book';
 import AddressBookView from '@/views/AddressBookView.vue';
 import { answerCommand, emit, invokedCommands, listenerCount, olvidarTodo } from './dobles';
 
-const STORE_EVENT = 'contactos-cambio';
+const STORE_EVENT = 'contacts-changed';
 
 const ANA = emptyContact({
 	name: 'Ana Pérez',
 	sort_key: 'Pérez, Ana',
-	url: 'almacen:a1:https://x/ana.vcf',
+	url: 'store:a1:https://x/ana.vcf',
 });
 const BRUNO = emptyContact({
 	name: 'Bruno Álvarez',
 	sort_key: 'Álvarez, Bruno',
-	url: 'almacen:a2:https://x/bruno.vcf',
+	url: 'store:a2:https://x/bruno.vcf',
 });
 
 const ACCOUNTS = [
@@ -90,15 +90,15 @@ describe('las cuentas', () => {
 	}
 });
 
-describe('actualizar', () => {
+describe('refresh', () => {
 	test('pide una vuelta de cada cuenta al sincronizador y después relee', async () => {
 		answerAccounts({ a1: [ANA] });
-		const { contactos, cargar, actualizar } = agenda();
+		const { contactos, cargar, refresh } = agenda();
 		await cargar();
 		answerAccounts({ a1: [ANA], a2: [BRUNO] });
 		invokedCommands.length = 0;
 
-		await actualizar();
+		await refresh();
 
 		const sync = invokedCommands.find((c) => c.command === 'request_sync');
 		expect(sync?.args).toEqual({ accountIds: ['a1', 'a2'] });
@@ -107,18 +107,34 @@ describe('actualizar', () => {
 		expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez', 'Bruno Álvarez']);
 	});
 
+	test('no le pide una vuelta a la cuenta que hay que reconectar', async () => {
+		answerCommand('listar_cuentas', () => [
+			{ id: 'a1', nombre: 'ana', necesita_reconectarse: false },
+			{ id: 'a2', nombre: 'bruno', necesita_reconectarse: true },
+		]);
+		answerCommand('contactos_de_la_cuenta', () => ({ libretas: [], contactos: [], fallos: [] }));
+		const { cargar, refresh } = agenda();
+		await cargar();
+		invokedCommands.length = 0;
+
+		await refresh();
+
+		const sync = invokedCommands.find((c) => c.command === 'request_sync');
+		expect(sync?.args).toEqual({ accountIds: ['a1'] });
+	});
+
 	test('relee aunque pedir la vuelta falle', async () => {
 		const quiet = spyOn(console, 'error').mockImplementation(() => {});
 		try {
 			answerAccounts({ a1: [ANA] });
-			const { contactos, avisos, cargar, actualizar } = agenda();
+			const { contactos, avisos, cargar, refresh } = agenda();
 			await cargar();
 			answerCommand('request_sync', () => {
 				throw new Error('el sincronizador no está');
 			});
 			answerAccounts({ a1: [ANA], a2: [BRUNO] });
 
-			await actualizar();
+			await refresh();
 
 			expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez', 'Bruno Álvarez']);
 			// No pudo pedir una vuelta, pero lo que hay se ve: no es un fallo de la agenda.
@@ -151,7 +167,7 @@ describe('actualizar', () => {
 });
 
 describe('el aviso del almacén', () => {
-	test('contactos-cambio relee la agenda sola', async () => {
+	test('contacts-changed relee la agenda sola', async () => {
 		answerAccounts({ a1: [ANA] });
 		const { contactos, cargar } = agenda();
 		await cargar();

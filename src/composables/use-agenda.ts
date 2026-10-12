@@ -23,7 +23,7 @@ export interface Libreta {
 }
 
 /** El aviso del programa de que cambió lo guardado de los contactos. */
-const EVENTO_DEL_ALMACEN = 'contactos-cambio';
+const STORE_CHANGED_EVENT = 'contacts-changed';
 
 interface LecturaDeCuenta {
 	libretas: Libreta[];
@@ -136,11 +136,15 @@ export function useAgenda(locale: () => string) {
 	/**
 	 * El botón «Actualizar»: le pide al sincronizador que traiga ya lo nuevo de
 	 * cada cuenta, y relee lo que hay mientras tanto. Lo que llegue después se
-	 * avisa con [`EVENTO_DEL_ALMACEN`].
+	 * avisa con [`STORE_CHANGED_EVENT`].
 	 */
-	async function actualizar() {
+	async function refresh() {
 		try {
-			await invoke('request_sync', { accountIds: cuentas.value.map((c) => c.id) });
+			// Las que hay que reconectar no: el sincronizador no puede con ellas
+			// hasta que la persona lo haga desde Configuración.
+			await invoke('request_sync', {
+				accountIds: cuentas.value.filter((c) => !c.necesita_reconectarse).map((c) => c.id),
+			});
 		} catch (e) {
 			console.error('no se pudo pedir una vuelta al sincronizador', e);
 		}
@@ -151,7 +155,7 @@ export function useAgenda(locale: () => string) {
 	// Sin preguntar a intervalos.
 	let dejarDeEscuchar: UnlistenFn | null = null;
 	let descartado = false;
-	listen(EVENTO_DEL_ALMACEN, () => {
+	listen(STORE_CHANGED_EVENT, () => {
 		void cargar();
 	})
 		.then((cancelar) => {
@@ -184,7 +188,7 @@ export function useAgenda(locale: () => string) {
 		cargando,
 		avisos,
 		cargar,
-		actualizar,
+		refresh,
 		elegir,
 	};
 }

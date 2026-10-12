@@ -12,7 +12,7 @@
 //! antes.
 //!
 //! Lo nuevo se avisa con `Changed("contacts", …)`, que se pasa a la ventana
-//! como [`EVENTO`]; el botón «Actualizar» pide `RequestSync`.
+//! como [`CHANGED_EVENT`]; el botón «Actualizar» pide `RequestSync`.
 //!
 //! La primera lectura puede abrir el diálogo de `vasak-permissions`
 //! (`store.contacts`): por eso las llamadas no tienen tope de tiempo.
@@ -23,30 +23,40 @@ use crate::carddav::Libreta;
 use crate::comandos::LecturaDeCuenta;
 use crate::vcard;
 
-const SERVICIO: &str = "ar.net.vasak.os.AccountsSync";
-const RUTA: &str = "/ar/net/vasak/os/AccountsStore";
-const INTERFAZ: &str = "ar.net.vasak.os.AccountsStore";
+const SERVICE: &str = "ar.net.vasak.os.AccountsSync";
+const PATH: &str = "/ar/net/vasak/os/AccountsStore";
+const INTERFACE: &str = "ar.net.vasak.os.AccountsStore";
 
 /// El aviso a la ventana de que cambió lo guardado de los contactos.
-pub const EVENTO: &str = "contactos-cambio";
+pub const CHANGED_EVENT: &str = "contacts-changed";
+
+/// Cuánto se juntan los avisos seguidos antes de pasarlos a la ventana.
+const SETTLE: std::time::Duration = std::time::Duration::from_millis(500);
 
 /// Cuántas tarjetas se piden por página: el máximo que acepta el almacén.
-const PAGINA: u32 = 1000;
+const PAGE_SIZE: u32 = 1000;
 
 /// Cuántas páginas se leen como mucho por cuenta. Cincuenta mil contactos no
 /// es una agenda personal; se muestra lo que entró y se avisa.
-const MAX_PAGINAS: usize = 50;
+const MAX_PAGES: usize = 50;
+
+/// Lo más que manda el almacén por página: 4 MiB de filas, el cursor y el
+/// envoltorio (`MAX_PAGE_REPLY_BYTES` de `vasak-accounts`).
+const MAX_REPLY_BYTES: usize = 4 * 1024 * 1024 + 64 * 1024 + 64;
+
+/// Lo más que guarda el almacén de una tarjeta. Una más grande no salió de él.
+const MAX_CARD_BYTES: usize = 512 * 1024;
 
 /// Una libreta como la lista el almacén.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct LibretaGuardada {
+pub struct StoredAddressBook {
     pub id: String,
     pub display_name: String,
 }
 
 /// Una tarjeta cruda del almacén.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
-pub struct TarjetaGuardada {
+pub struct StoredCard {
     pub id: String,
     #[serde(default)]
     pub address_book_id: String,
@@ -56,47 +66,61 @@ pub struct TarjetaGuardada {
 }
 
 #[derive(Debug, Clone, Deserialize)]
-struct PaginaDeTarjetas {
-    items: Vec<TarjetaGuardada>,
+struct CardPage {
+    items: Vec<StoredCard>,
     #[serde(default)]
     next_cursor: Option<String>,
 }
 
-async fn conectar() -> Result<zbus::Connection, String> {
+async fn connect() -> Result<zbus::Connection, String> {
     zbus::Connection::session()
         .await
         .map_err(|e| format!("no se pudo contactar al almacén del sistema: {e}"))
 }
 
-async fn llamar<A>(metodo: &str, argumentos: &A) -> Result<String, String>
+async fn call<A>(metodo: &str, argumentos: &A) -> Result<String, String>
 where
     A: serde::ser::Serialize + zbus::zvariant::DynamicType,
 {
-    conectar()
+    connect()
         .await?
-        .call_method(Some(SERVICIO), RUTA, Some(INTERFAZ), metodo, argumentos)
+        .call_method(Some(SERVICE), PATH, Some(INTERFACE), metodo, argumentos)
         .await
         .map_err(|e| format!("{metodo}: {e}"))?
         .body()
-        .deserialize()
+        .deserialize::<String>()
         .map_err(|e| format!("respuesta inválida de {metodo}: {e}"))
+        .and_then(capped)
+}
+
+/// Rechaza una respuesta más grande que la página más grande que manda el
+/// almacén. El de verdad nunca pasa de ahí; algo que se hace pasar por él en el
+/// bus de sesión podría mandar más de cien megas por página.
+fn capped(json: String) -> Result<String, String> {
+    if json.len() > MAX_REPLY_BYTES {
+        return Err(format!(
+            "el almacén mandó una respuesta de {} bytes, más de las que manda",
+            json.len()
+        ));
+    }
+    Ok(json)
 }
 
 /// La identidad de un contacto del almacén: la cuenta y dónde vive la
 /// tarjeta en el servidor. Es lo que la ventana compara para seguir mostrando
 /// el mismo contacto después de releer, así que no puede cambiar entre vueltas
 /// —el número de la base sí podría— ni repetirse entre cuentas.
-pub fn identidad(account_id: &str, tarjeta: &TarjetaGuardada) -> String {
+pub fn identity(account_id: &str, tarjeta: &StoredCard) -> String {
     let donde = if tarjeta.href.is_empty() {
         &tarjeta.id
     } else {
         &tarjeta.href
     };
-    format!("almacen:{account_id}:{donde}")
+    format!("store:{account_id}:{donde}")
 }
 
 /// Las libretas en la forma de la ventana.
-pub fn libretas_de(guardadas: Vec<LibretaGuardada>) -> Vec<Libreta> {
+pub fn address_books_from(guardadas: Vec<StoredAddressBook>) -> Vec<Libreta> {
     guardadas
         .into_iter()
         .map(|l| Libreta {
@@ -108,35 +132,55 @@ pub fn libretas_de(guardadas: Vec<LibretaGuardada>) -> Vec<Libreta> {
 
 /// Lee las tarjetas con el intérprete de la ventana. Las que no tienen nada
 /// que mostrar se descartan, como las que venían del servidor.
-pub fn contactos_de(account_id: &str, tarjetas: Vec<TarjetaGuardada>) -> Vec<vcard::Contact> {
+///
+/// Un recurso del servidor puede traer **varias tarjetas** —hay libretas
+/// exportadas como un solo archivo—: se separan como con lo que bajaba por red,
+/// y cada una es un contacto. Leído entero, las propiedades de una se mezclarían
+/// con las de la otra: un nombre con el correo de otra persona.
+pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::Contact> {
     tarjetas
         .into_iter()
-        .filter_map(|t| vcard::contact_from(&t.vcard, &identidad(account_id, &t)))
+        .filter(|t| t.vcard.len() <= MAX_CARD_BYTES)
+        .flat_map(|t| {
+            let base = identity(account_id, &t);
+            vcard::split_cards(&t.vcard)
+                .into_iter()
+                .enumerate()
+                .filter_map(move |(i, card)| {
+                    let id = if i == 0 {
+                        base.clone()
+                    } else {
+                        format!("{base}#{i}")
+                    };
+                    vcard::contact_from(&card, &id)
+                })
+                .collect::<Vec<_>>()
+        })
         .collect()
 }
 
 /// Lo que hay de una cuenta en el almacén. `Ok(None)` si el almacén todavía
 /// no tiene libretas de esa cuenta —el área no se encendió, la primera vuelta
 /// no terminó—: quien llama va al servidor como antes.
-pub async fn contactos(account_id: &str) -> Result<Option<LecturaDeCuenta>, String> {
-    let json = llamar("ListAddressBooks", &(account_id,)).await?;
-    let libretas: Vec<LibretaGuardada> = serde_json::from_str(&json)
+pub async fn read_contacts(account_id: &str) -> Result<Option<LecturaDeCuenta>, String> {
+    let json = call("ListAddressBooks", &(account_id,)).await?;
+    let libretas: Vec<StoredAddressBook> = serde_json::from_str(&json)
         .map_err(|e| format!("no se pudieron leer las libretas: {e}"))?;
     let llamada = |cursor: String| async move {
-        llamar(
+        call(
             "ListContactCards",
-            &(account_id, "", cursor.as_str(), PAGINA),
+            &(account_id, "", cursor.as_str(), PAGE_SIZE),
         )
         .await
     };
-    leer(account_id, libretas, llamada).await
+    read_store_pages(account_id, libretas, llamada).await
 }
 
-/// Lo de [`contactos`] sin el bus: las libretas ya leídas, y cómo pedir cada
+/// Lo de [`read_contacts`] sin el bus: las libretas ya leídas, y cómo pedir cada
 /// página.
-pub async fn leer<F, Fut>(
+pub async fn read_store_pages<F, Fut>(
     account_id: &str,
-    libretas: Vec<LibretaGuardada>,
+    libretas: Vec<StoredAddressBook>,
     mut pagina: F,
 ) -> Result<Option<LecturaDeCuenta>, String>
 where
@@ -147,17 +191,17 @@ where
         return Ok(None);
     }
     let mut lectura = LecturaDeCuenta {
-        libretas: libretas_de(libretas),
+        libretas: address_books_from(libretas),
         ..Default::default()
     };
     let mut cursor = String::new();
-    for _ in 0..MAX_PAGINAS {
+    for _ in 0..MAX_PAGES {
         let json = pagina(cursor.clone()).await?;
-        let pagina: PaginaDeTarjetas = serde_json::from_str(&json)
+        let pagina: CardPage = serde_json::from_str(&json)
             .map_err(|e| format!("no se pudieron leer los contactos: {e}"))?;
         lectura
             .contactos
-            .extend(contactos_de(account_id, pagina.items));
+            .extend(contacts_from(account_id, pagina.items));
         match pagina.next_cursor {
             Some(siguiente) if !siguiente.is_empty() => cursor = siguiente,
             _ => return Ok(Some(lectura)),
@@ -170,17 +214,17 @@ where
 }
 
 /// Le pide al sincronizador una vuelta ya de unas cuentas: el botón
-/// «Actualizar». No espera a que termine: lo nuevo se avisa con [`EVENTO`].
-pub async fn pedir_sincronizacion(account_ids: &[String]) {
-    let Ok(conexion) = conectar().await else {
+/// «Actualizar». No espera a que termine: lo nuevo se avisa con [`CHANGED_EVENT`].
+pub async fn request_sync(account_ids: &[String]) {
+    let Ok(conexion) = connect().await else {
         return;
     };
     for id in account_ids {
         if let Err(e) = conexion
             .call_method(
-                Some(SERVICIO),
-                RUTA,
-                Some(INTERFAZ),
+                Some(SERVICE),
+                PATH,
+                Some(INTERFACE),
                 "RequestSync",
                 &(id.as_str(),),
             )
@@ -194,22 +238,27 @@ pub async fn pedir_sincronizacion(account_ids: &[String]) {
 /// La regla de la señal que interesa: `Changed` del almacén, sólo de los
 /// contactos. El bus filtra por el primer argumento, así que un lote de correo
 /// o de calendario no despierta a esta ventana.
-pub fn regla_de_cambios() -> zbus::Result<zbus::MatchRule<'static>> {
+pub fn change_rule() -> zbus::Result<zbus::MatchRule<'static>> {
     Ok(zbus::MatchRule::builder()
         .msg_type(zbus::message::Type::Signal)
-        .interface(INTERFAZ)?
+        // Sólo del dueño del nombre del sincronizador y de su objeto: cualquier
+        // proceso de la sesión puede emitir una señal con esta interfaz, y cada
+        // una hace releer la agenda entera.
+        .sender(SERVICE)?
+        .path(PATH)?
+        .interface(INTERFACE)?
         .member("Changed")?
         .arg(0, "contacts")?
         .build())
 }
 
 /// Pasa a la ventana cada `Changed("contacts", …)` del almacén.
-pub fn escuchar(app: tauri::AppHandle) {
+pub fn watch(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         // En bucle: el bus se puede cortar, y con un solo intento la ventana
         // dejaría de enterarse de lo nuevo hasta que se la cierre.
         loop {
-            if let Err(e) = seguir(&app).await {
+            if let Err(e) = follow(&app).await {
                 eprintln!("[contactos] no se pueden recibir avisos del almacén: {e}");
             }
             tokio::time::sleep(std::time::Duration::from_secs(15)).await;
@@ -217,18 +266,22 @@ pub fn escuchar(app: tauri::AppHandle) {
     });
 }
 
-async fn seguir(app: &tauri::AppHandle) -> Result<(), String> {
+async fn follow(app: &tauri::AppHandle) -> Result<(), String> {
     use futures_util::StreamExt;
     use tauri::Emitter;
 
-    let conexion = conectar().await?;
-    let regla = regla_de_cambios().map_err(|e| format!("no se pudo armar el filtro: {e}"))?;
+    let conexion = connect().await?;
+    let regla = change_rule().map_err(|e| format!("no se pudo armar el filtro: {e}"))?;
     let mut avisos = zbus::MessageStream::for_match_rule(regla, &conexion, None)
         .await
         .map_err(|e| format!("no se pudo escuchar al almacén: {e}"))?;
     while let Some(aviso) = avisos.next().await {
         if aviso.is_ok() {
-            let _ = app.emit(EVENTO, ());
+            // Una vuelta escribe de a lotes y avisa por cada uno: los seguidos
+            // se juntan en un solo aviso, y la agenda se relee una vez.
+            tokio::time::sleep(SETTLE).await;
+            while let Some(Some(_)) = futures_util::FutureExt::now_or_never(avisos.next()) {}
+            let _ = app.emit(CHANGED_EVENT, ());
         }
     }
     Err("el bus de sesión cerró la conexión".into())
@@ -240,8 +293,8 @@ mod tests {
 
     use super::*;
 
-    fn card(id: &str, href: &str, vcard: &str) -> TarjetaGuardada {
-        TarjetaGuardada {
+    fn card(id: &str, href: &str, vcard: &str) -> StoredCard {
+        StoredCard {
             id: id.into(),
             address_book_id: "1".into(),
             href: href.into(),
@@ -269,8 +322,8 @@ mod tests {
         serde_json::json!({ "items": items, "next_cursor": next }).to_string()
     }
 
-    fn one_book() -> Vec<LibretaGuardada> {
-        vec![LibretaGuardada {
+    fn one_book() -> Vec<StoredAddressBook> {
+        vec![StoredAddressBook {
             id: "1".into(),
             display_name: "Personal".into(),
         }]
@@ -279,12 +332,12 @@ mod tests {
     /// Corre `leer` con páginas armadas de antemano y devuelve lo que leyó y
     /// los cursores con que se pidió cada página.
     async fn read_pages(
-        books: Vec<LibretaGuardada>,
+        books: Vec<StoredAddressBook>,
         pages: Vec<Result<String, String>>,
     ) -> (Result<Option<LecturaDeCuenta>, String>, Vec<String>) {
         let asked = RefCell::new(Vec::new());
         let pages = RefCell::new(pages.into_iter());
-        let result = leer("cuenta", books, |cursor| {
+        let result = read_store_pages("cuenta", books, |cursor| {
             asked.borrow_mut().push(cursor);
             let next = pages
                 .borrow_mut()
@@ -305,10 +358,7 @@ mod tests {
     #[test]
     fn la_identidad_es_la_cuenta_y_donde_vive_la_tarjeta() {
         let t = card("7", "https://x/a/ana.vcf", &named(1));
-        assert_eq!(
-            identidad("cuenta", &t),
-            "almacen:cuenta:https://x/a/ana.vcf"
-        );
+        assert_eq!(identity("cuenta", &t), "store:cuenta:https://x/a/ana.vcf");
     }
 
     /// El número de la base puede cambiar entre vueltas; el `href` no. Con el
@@ -317,16 +367,16 @@ mod tests {
     fn la_identidad_no_cambia_si_cambia_el_numero_de_la_base() {
         let before = card("7", "https://x/a/ana.vcf", &named(1));
         let after = card("912", "https://x/a/ana.vcf", &named(1));
-        assert_eq!(identidad("cuenta", &before), identidad("cuenta", &after));
+        assert_eq!(identity("cuenta", &before), identity("cuenta", &after));
     }
 
     #[test]
     fn sin_href_la_identidad_usa_el_numero_de_la_base() {
         let t = card("7", "", &named(1));
-        assert_eq!(identidad("cuenta", &t), "almacen:cuenta:7");
+        assert_eq!(identity("cuenta", &t), "store:cuenta:7");
         assert_ne!(
-            identidad("cuenta", &t),
-            identidad("cuenta", &card("8", "", &named(1)))
+            identity("cuenta", &t),
+            identity("cuenta", &card("8", "", &named(1)))
         );
     }
 
@@ -336,21 +386,21 @@ mod tests {
     #[test]
     fn la_misma_tarjeta_en_dos_cuentas_no_tiene_la_misma_identidad() {
         let t = card("7", "https://x/a/ana.vcf", &named(1));
-        assert_ne!(identidad("una", &t), identidad("otra", &t));
+        assert_ne!(identity("una", &t), identity("otra", &t));
         let bare = card("7", "", &named(1));
-        assert_ne!(identidad("una", &bare), identidad("otra", &bare));
+        assert_ne!(identity("una", &bare), identity("otra", &bare));
     }
 
     // ── Las libretas y las tarjetas ────────────────────────────────────────
 
     #[test]
     fn las_libretas_guardadas_pasan_a_la_forma_de_la_ventana() {
-        let books = libretas_de(vec![
-            LibretaGuardada {
+        let books = address_books_from(vec![
+            StoredAddressBook {
                 id: "3".into(),
                 display_name: "Trabajo".into(),
             },
-            LibretaGuardada {
+            StoredAddressBook {
                 id: "1".into(),
                 display_name: "Personal".into(),
             },
@@ -376,17 +426,17 @@ mod tests {
                    X-SOCIALPROFILE;TYPE=mastodon:@ana@mastodon.social\r\n\
                    NOTE:Una nota\r\nEND:VCARD\r\n";
         let stored = card("7", "https://x/a/ana.vcf", raw);
-        let contacts = contactos_de("cuenta", vec![stored.clone()]);
+        let contacts = contacts_from("cuenta", vec![stored.clone()]);
         assert_eq!(contacts.len(), 1);
         let ana = &contacts[0];
 
         // Lo mismo que daría el intérprete de la ventana, campo por campo.
         let expected =
-            vcard::contact_from(raw, &identidad("cuenta", &stored)).expect("la tarjeta se lee");
+            vcard::contact_from(raw, &identity("cuenta", &stored)).expect("la tarjeta se lee");
         assert_eq!(ana, &expected);
 
         assert_eq!(ana.name, "Ana Pérez");
-        assert_eq!(ana.url, "almacen:cuenta:https://x/a/ana.vcf");
+        assert_eq!(ana.url, "store:cuenta:https://x/a/ana.vcf");
         assert_eq!(ana.nickname, "Anita");
         assert_eq!(ana.title, "Jefa de soporte");
         assert_eq!(ana.emails[0].value, "ana@x.com");
@@ -401,7 +451,7 @@ mod tests {
     /// servidor; las demás siguen, en el orden en que vinieron.
     #[test]
     fn las_tarjetas_sin_nada_que_mostrar_se_descartan() {
-        let contacts = contactos_de(
+        let contacts = contacts_from(
             "cuenta",
             vec![
                 card("1", "https://x/a/1.vcf", &named(1)),
@@ -421,8 +471,8 @@ mod tests {
         assert_eq!(
             shown,
             vec![
-                ("Contacto 1", "almacen:cuenta:https://x/a/1.vcf"),
-                ("Contacto 4", "almacen:cuenta:https://x/a/4.vcf"),
+                ("Contacto 1", "store:cuenta:https://x/a/1.vcf"),
+                ("Contacto 4", "store:cuenta:https://x/a/4.vcf"),
             ]
         );
     }
@@ -435,21 +485,21 @@ mod tests {
     fn se_lee_la_respuesta_de_list_address_books() {
         let json = r#"[{"id":"3","display_name":"Trabajo","contacts":12},
                        {"id":"1","display_name":"Personal","contacts":0}]"#;
-        let books: Vec<LibretaGuardada> = serde_json::from_str(json).unwrap();
+        let books: Vec<StoredAddressBook> = serde_json::from_str(json).unwrap();
         assert_eq!(
             books,
             vec![
-                LibretaGuardada {
+                StoredAddressBook {
                     id: "3".into(),
                     display_name: "Trabajo".into(),
                 },
-                LibretaGuardada {
+                StoredAddressBook {
                     id: "1".into(),
                     display_name: "Personal".into(),
                 },
             ]
         );
-        let none: Vec<LibretaGuardada> = serde_json::from_str("[]").unwrap();
+        let none: Vec<StoredAddressBook> = serde_json::from_str("[]").unwrap();
         assert!(none.is_empty());
     }
 
@@ -472,13 +522,10 @@ mod tests {
         let lectura = result.unwrap().expect("había libretas");
         assert_eq!(asked, vec![String::new()]);
         assert_eq!(lectura.contactos.len(), 1);
-        assert_eq!(
-            lectura.contactos[0].url,
-            "almacen:cuenta:https://x/a/ana.vcf"
-        );
+        assert_eq!(lectura.contactos[0].url, "store:cuenta:https://x/a/ana.vcf");
         assert_eq!(
             lectura.contactos[0],
-            vcard::contact_from(raw, "almacen:cuenta:https://x/a/ana.vcf").unwrap()
+            vcard::contact_from(raw, "store:cuenta:https://x/a/ana.vcf").unwrap()
         );
         assert_eq!(lectura.libretas[0].nombre, "Personal");
         assert!(lectura.fallos.is_empty());
@@ -556,13 +603,13 @@ mod tests {
     /// leen hasta `MAX_PAGINAS`, se muestra lo que entró y se avisa.
     #[tokio::test]
     async fn al_llegar_al_tope_de_paginas_se_muestra_lo_leido_y_se_avisa() {
-        let pages = (0..MAX_PAGINAS + 5)
+        let pages = (0..MAX_PAGES + 5)
             .map(|n| Ok(page_json(&[n], Some(&format!("c{n}")))))
             .collect();
         let (result, asked) = read_pages(one_book(), pages).await;
         let lectura = result.unwrap().unwrap();
-        assert_eq!(asked.len(), MAX_PAGINAS);
-        assert_eq!(lectura.contactos.len(), MAX_PAGINAS);
+        assert_eq!(asked.len(), MAX_PAGES);
+        assert_eq!(lectura.contactos.len(), MAX_PAGES);
         assert_eq!(lectura.fallos.len(), 1, "un aviso de que hay más");
     }
 
@@ -602,7 +649,7 @@ mod tests {
     // ── El aviso de cambios ────────────────────────────────────────────────
 
     fn changed(area: &str) -> zbus::Message {
-        zbus::Message::signal(RUTA, INTERFAZ, "Changed")
+        zbus::Message::signal(PATH, INTERFACE, "Changed")
             .unwrap()
             .build(&(area, "cuenta", 3u64))
             .unwrap()
@@ -613,18 +660,18 @@ mod tests {
     /// interfaz, no.
     #[test]
     fn la_regla_solo_deja_pasar_los_cambios_de_los_contactos() {
-        let rule = regla_de_cambios().unwrap();
+        let rule = change_rule().unwrap();
         assert!(rule.matches(&changed("contacts")).unwrap());
         assert!(!rule.matches(&changed("calendar")).unwrap());
         assert!(!rule.matches(&changed("email")).unwrap());
 
-        let status = zbus::Message::signal(RUTA, INTERFAZ, "StatusChanged")
+        let status = zbus::Message::signal(PATH, INTERFACE, "StatusChanged")
             .unwrap()
             .build(&())
             .unwrap();
         assert!(!rule.matches(&status).unwrap());
 
-        let elsewhere = zbus::Message::signal(RUTA, "ar.net.vasak.os.Otra", "Changed")
+        let elsewhere = zbus::Message::signal(PATH, "ar.net.vasak.os.Otra", "Changed")
             .unwrap()
             .build(&("contacts", "cuenta", 3u64))
             .unwrap();
@@ -633,5 +680,60 @@ mod tests {
         let text = rule.to_string();
         assert!(text.contains("type='signal'"), "{text}");
         assert!(text.contains("arg0='contacts'"), "{text}");
+    }
+
+    /// Un recurso con dos tarjetas son dos contactos, cada uno con lo suyo:
+    /// leído entero, el nombre de una quedaba con el teléfono de la otra.
+    #[test]
+    fn un_recurso_con_dos_tarjetas_son_dos_contactos() {
+        let two = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nTEL:111\r\nEND:VCARD\r\n\
+                   BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bruno\r\nTEL:222\r\nEND:VCARD\r\n";
+        let contacts = contacts_from("a1", vec![card("7", "https://x/todos.vcf", two)]);
+        assert_eq!(contacts.len(), 2);
+        assert_eq!(contacts[0].name, "Ana");
+        assert_eq!(contacts[0].phones.len(), 1);
+        assert_eq!(contacts[0].phones[0].value, "111");
+        assert_eq!(contacts[1].name, "Bruno");
+        assert_eq!(contacts[1].phones[0].value, "222");
+        assert_ne!(contacts[0].url, contacts[1].url);
+        assert_eq!(contacts[0].url, "store:a1:https://x/todos.vcf");
+    }
+
+    /// Una tarjeta más grande de lo que guarda el almacén no salió de él.
+    #[test]
+    fn una_tarjeta_mas_grande_que_las_del_almacen_se_descarta() {
+        let huge = format!(
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Grande\r\nNOTE:{}\r\nEND:VCARD\r\n",
+            "x".repeat(MAX_CARD_BYTES)
+        );
+        assert!(contacts_from("a1", vec![card("1", "h", &huge)]).is_empty());
+        assert_eq!(
+            contacts_from("a1", vec![card("1", "h", &named(1))]).len(),
+            1
+        );
+    }
+
+    /// Una respuesta más grande que la página más grande del almacén se
+    /// rechaza antes de leerla.
+    #[test]
+    fn una_respuesta_mas_grande_que_las_del_almacen_se_rechaza() {
+        assert!(capped("x".repeat(MAX_REPLY_BYTES)).is_ok());
+        assert!(capped("x".repeat(MAX_REPLY_BYTES + 1)).is_err());
+    }
+
+    /// Cualquier proceso de la sesión puede emitir una señal con la interfaz
+    /// del almacén: sólo cuenta la del dueño del nombre del sincronizador, y
+    /// desde su objeto.
+    #[test]
+    fn solo_cuenta_el_changed_del_sincronizador_y_de_su_objeto() {
+        let text = change_rule().unwrap().to_string();
+        assert!(
+            text.contains("sender='ar.net.vasak.os.AccountsSync'"),
+            "{text}"
+        );
+        assert!(
+            text.contains("path='/ar/net/vasak/os/AccountsStore'"),
+            "{text}"
+        );
     }
 }
