@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
-import { computed, ref } from 'vue';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { computed, onScopeDispose, ref } from 'vue';
 import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
 
 /** Una cuenta conectada que tiene libretas. */
@@ -20,6 +21,9 @@ export interface Libreta {
 	url: string;
 	nombre: string;
 }
+
+/** El aviso del programa de que cambió lo guardado de los contactos. */
+const EVENTO_DEL_ALMACEN = 'contactos-cambio';
 
 interface LecturaDeCuenta {
 	libretas: Libreta[];
@@ -71,10 +75,11 @@ export function useAgenda(locale: () => string) {
 			if (mio !== vigente) {
 				return;
 			}
-			cuentas.value = conectadas;
+			// Una respuesta que no es lista se toma como ninguna cuenta.
+			cuentas.value = Array.isArray(conectadas) ? conectadas : [];
 
 			const juntados: Contact[] = [];
-			for (const cuenta of conectadas) {
+			for (const cuenta of cuentas.value) {
 				if (cuenta.necesita_reconectarse) {
 					// No se intenta: el servicio ya sabe que la credencial no
 					// sirve, y pedirla sólo agrega un error técnico encima de un
@@ -128,6 +133,44 @@ export function useAgenda(locale: () => string) {
 		}
 	}
 
+	/**
+	 * El botón «Actualizar»: le pide al sincronizador que traiga ya lo nuevo de
+	 * cada cuenta, y relee lo que hay mientras tanto. Lo que llegue después se
+	 * avisa con [`EVENTO_DEL_ALMACEN`].
+	 */
+	async function actualizar() {
+		try {
+			await invoke('request_sync', { accountIds: cuentas.value.map((c) => c.id) });
+		} catch (e) {
+			console.error('no se pudo pedir una vuelta al sincronizador', e);
+		}
+		await cargar();
+	}
+
+	// Lo nuevo que trae el sincronizador en segundo plano: se relee la agenda.
+	// Sin preguntar a intervalos.
+	let dejarDeEscuchar: UnlistenFn | null = null;
+	let descartado = false;
+	listen(EVENTO_DEL_ALMACEN, () => {
+		void cargar();
+	})
+		.then((cancelar) => {
+			// La ventana se puede cerrar antes de que esto termine de engancharse.
+			if (descartado) {
+				cancelar();
+				return;
+			}
+			dejarDeEscuchar = cancelar;
+		})
+		.catch((e) => {
+			// Sin el aviso queda el botón de actualizar: se pierde enterarse solo.
+			console.error('no se pudo escuchar al almacén de contactos', e);
+		});
+	onScopeDispose(() => {
+		descartado = true;
+		dejarDeEscuchar?.();
+	});
+
 	function elegir(contacto: Contact) {
 		elegido.value = contacto;
 	}
@@ -141,6 +184,7 @@ export function useAgenda(locale: () => string) {
 		cargando,
 		avisos,
 		cargar,
+		actualizar,
 		elegir,
 	};
 }

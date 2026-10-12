@@ -38,8 +38,18 @@ pub async fn listar_cuentas() -> Result<Vec<CuentaConLibreta>, String> {
 }
 
 /// Todos los contactos de una cuenta.
+/// Los contactos de una cuenta.
+///
+/// **Primero del almacén del sistema**, que ya está sincronizado y no espera a
+/// la red. Sólo si el almacén todavía no tiene libretas de esa cuenta —o no se
+/// lo pudo leer— se le pregunta al servidor como antes.
 #[tauri::command]
 pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuenta, String> {
+    match crate::almacen::contactos(&account_id).await {
+        Ok(Some(lectura)) => return Ok(lectura),
+        Ok(None) => {}
+        Err(e) => eprintln!("[contactos] el almacén no contestó, se va al servidor: {e}"),
+    }
     let credencial = cuentas::credencial_de(&account_id).await?;
     let libretas = carddav::libretas(&credencial).await?;
 
@@ -68,6 +78,12 @@ pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuent
     // tiene una: `Intl.Collator` con el idioma de la sesión. Hacerlo acá a
     // medias sería un orden equivocado que la ventana tendría que rehacer.
     Ok(lectura)
+}
+
+/// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
+#[tauri::command]
+pub async fn request_sync(account_ids: Vec<String>) {
+    crate::almacen::pedir_sincronizacion(&account_ids).await
 }
 
 #[cfg(test)]
