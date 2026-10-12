@@ -216,8 +216,12 @@ where
 /// Le pide al sincronizador una vuelta ya de unas cuentas: el botón
 /// «Actualizar». No espera a que termine: lo nuevo se avisa con [`CHANGED_EVENT`].
 pub async fn request_sync(account_ids: &[String]) {
-    let Ok(conexion) = connect().await else {
-        return;
+    let conexion = match connect().await {
+        Ok(conexion) => conexion,
+        Err(e) => {
+            eprintln!("[contactos] no se pudo pedir una vuelta: {e}");
+            return;
+        }
     };
     for id in account_ids {
         if let Err(e) = conexion
@@ -276,12 +280,17 @@ async fn follow(app: &tauri::AppHandle) -> Result<(), String> {
         .await
         .map_err(|e| format!("no se pudo escuchar al almacén: {e}"))?;
     while let Some(aviso) = avisos.next().await {
+        if let Err(e) = &aviso {
+            eprintln!("[contactos] llegó un aviso del almacén que no se pudo leer: {e}");
+        }
         if aviso.is_ok() {
             // Una vuelta escribe de a lotes y avisa por cada uno: los seguidos
             // se juntan en un solo aviso, y la agenda se relee una vez.
             tokio::time::sleep(SETTLE).await;
             while let Some(Some(_)) = futures_util::FutureExt::now_or_never(avisos.next()) {}
-            let _ = app.emit(CHANGED_EVENT, ());
+            if let Err(e) = app.emit(CHANGED_EVENT, ()) {
+                eprintln!("[contactos] no se pudo avisar a la ventana: {e}");
+            }
         }
     }
     Err("el bus de sesión cerró la conexión".into())
