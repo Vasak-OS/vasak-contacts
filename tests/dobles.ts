@@ -78,6 +78,11 @@ export async function listen(nombre: string, manejador: (evento: { payload: unkn
 	};
 }
 
+/** Cuántos oyentes tiene un evento ahora: para ver que uno se soltó. */
+export function listenerCount(nombre: string): number {
+	return listeners.get(nombre)?.size ?? 0;
+}
+
 /** Dispara un evento del backend y espera a que lo atiendan. */
 export async function emit(nombre: string, payload: unknown = null) {
 	for (const manejador of [...(listeners.get(nombre) ?? [])]) {
