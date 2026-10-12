@@ -9,6 +9,7 @@ mod cuentas;
 mod dav;
 mod locales;
 mod photos;
+mod store;
 mod vcard;
 mod ventana;
 
@@ -38,9 +39,12 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             comandos::listar_cuentas,
             comandos::contactos_de_la_cuenta,
+            comandos::request_sync,
             photos::contact_photo,
         ])
         .setup(|app| {
+            // Lo nuevo que trae el sincronizador, para que la agenda se relea sola.
+            store::watch(app.handle().clone());
             // La ventana nace oculta y la muestra el frontend cuando ya tiene los
             // textos y el tema. Esto la muestra igual si el frontend nunca llega:
             // ver `ventana.rs`.

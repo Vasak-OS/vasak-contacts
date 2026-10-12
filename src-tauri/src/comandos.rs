@@ -37,9 +37,28 @@ pub async fn listar_cuentas() -> Result<Vec<CuentaConLibreta>, String> {
     cuentas::cuentas().await
 }
 
-/// Todos los contactos de una cuenta.
+/// Los contactos de una cuenta.
+///
+/// **Primero del almacén del sistema**, que ya está sincronizado y no espera a
+/// la red. Sólo si el almacén todavía no tiene libretas de esa cuenta —o no se
+/// lo pudo leer— se le pregunta al servidor como antes.
 #[tauri::command]
 pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuenta, String> {
+    match crate::store::read_contacts(&account_id).await {
+        Ok(Some(lectura)) => return Ok(lectura),
+        Ok(None) => {}
+        // Si la persona le dijo que no al almacén, no se le vuelve a preguntar
+        // por la puerta de al lado: ir al servidor pediría `account.contacts`,
+        // que entrega el token y es más que lo que acaba de negar.
+        Err(e) if denied_by_store(&e) => {
+            return Err(
+                "no diste permiso para leer los contactos del sistema; se cambia en \
+                 Configuración → Privacidad y seguridad"
+                    .into(),
+            )
+        }
+        Err(e) => eprintln!("[contactos] el almacén no contestó, se va al servidor: {e}"),
+    }
     let credencial = cuentas::credencial_de(&account_id).await?;
     let libretas = carddav::libretas(&credencial).await?;
 
@@ -68,6 +87,18 @@ pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuent
     // tiene una: `Intl.Collator` con el idioma de la sesión. Hacerlo acá a
     // medias sería un orden equivocado que la ventana tendría que rehacer.
     Ok(lectura)
+}
+
+/// Si el almacén contestó que la persona no dio permiso. Ahí no se va al
+/// servidor: eso pediría un permiso más fuerte que el que acaba de negar.
+pub(crate) fn denied_by_store(error: &str) -> bool {
+    error.contains("org.freedesktop.DBus.Error.AccessDenied")
+}
+
+/// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
+#[tauri::command]
+pub async fn request_sync(account_ids: Vec<String>) {
+    crate::store::request_sync(&account_ids).await
 }
 
 #[cfg(test)]
@@ -114,5 +145,18 @@ mod tests {
         // El nombre de la libreta que falló va en el mensaje: «falló una
         // libreta» no le dice a nadie cuál de las suyas le falta.
         assert!(json["fallos"][0].as_str().unwrap().starts_with("Trabajo:"));
+    }
+
+    /// Un «no» al almacén no se convierte en una pregunta por el permiso más
+    /// fuerte de la cuenta; cualquier otro fallo del almacén sí va al servidor.
+    #[test]
+    fn un_no_del_almacen_no_lleva_al_servidor() {
+        assert!(denied_by_store(
+            "ListAddressBooks: org.freedesktop.DBus.Error.AccessDenied: sin permiso"
+        ));
+        assert!(!denied_by_store(
+            "ListAddressBooks: org.freedesktop.DBus.Error.ServiceUnknown: no está"
+        ));
+        assert!(!denied_by_store("respuesta inválida de ListContactCards"));
     }
 }
