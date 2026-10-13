@@ -1,6 +1,6 @@
 [package]
 name = "vasak-contacts"
-version = "0.12.0"
+version = "0.13.0"
 description = "Los contactos de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -37,6 +37,9 @@ tauri-plugin-vsk-journal = "2"
 zbus = { version = "5", default-features = false, features = ["tokio"] }
 # El `StreamExt` de los avisos del almacén: zbus 5 ya no lo reexporta.
 futures-util = "0.3"
+# El cliente del almacén del sistema, compartido con mail, calendario y el
+# escritorio: comprueba al dueño del nombre del sincronizador antes de creerle.
+tauri-plugin-vsk-store = "0.1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "fs", "io-util"] }
 # CardDAV es HTTP con dos métodos más. rustls: es Rust puro, así que no suma
 # bibliotecas compartidas al paquete.

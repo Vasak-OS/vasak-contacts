@@ -1,4 +1,10 @@
 <script lang="ts" setup>
+import {
+	type AccountSyncStatus,
+	type SyncLine,
+	type SyncRequestFailure,
+	syncLine,
+} from '@vasakgroup/plugin-vsk-store';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
@@ -15,12 +21,6 @@ import type { Cuenta } from '@/composables/use-agenda';
 import { interpolar } from '@/tools/interpolar';
 import type { AddressBook } from '@/tools/library-filter';
 import { NARROW_ONLY, NARROW_WRAP } from '@/tools/narrow-layout';
-import {
-	type AccountSyncStatus,
-	type SyncLine,
-	type SyncRequestFailure,
-	syncLine,
-} from '@/tools/sync-status';
 
 const props = defineProps<{
 	accounts: Cuenta[];
