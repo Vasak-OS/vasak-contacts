@@ -38,7 +38,7 @@ use base64::Engine;
 use reqwest::Url;
 use serde::Serialize;
 
-use crate::cuentas::{AuthKind, Credencial};
+use crate::accounts::{AuthKind, Credencial};
 use crate::dav::{self, DavError, Limits};
 use crate::vcard::{self, Contact};
 
@@ -197,7 +197,7 @@ pub fn consulta_de_tarjetas() -> String {
 /// `Basic` para una contraseña y `Bearer` para un token. No es una preferencia:
 /// Google contesta 401 a cualquier `Basic`, y un servidor que espera contraseña
 /// no entiende un `Bearer`. Cuál va lo decide lo que guardó el servicio de
-/// cuentas, no el proveedor — ver `cuentas::AuthKind`.
+/// cuentas, no el proveedor — ver `accounts::AuthKind`.
 fn cabecera_de(credencial: &Credencial) -> String {
     match credencial.auth {
         AuthKind::Password => format!(
@@ -261,12 +261,12 @@ async fn cuerpo_con_tope(mut respuesta: reqwest::Response) -> Result<String, Str
 
 /// La dirección de la cuenta, ya comprobada: `https` y sin usuario y contraseña
 /// adentro.
-fn direccion_de(credencial: &crate::cuentas::Credencial) -> Result<Url, String> {
+fn direccion_de(credencial: &crate::accounts::Credencial) -> Result<Url, String> {
     dav::parse_account_url(&credencial.home).map_err(|e| e.to_string())
 }
 
 /// Las libretas que hay en la carpeta de la persona.
-pub async fn libretas(credencial: &crate::cuentas::Credencial) -> Result<Vec<Libreta>, String> {
+pub async fn libretas(credencial: &crate::accounts::Credencial) -> Result<Vec<Libreta>, String> {
     let home = direccion_de(credencial)?;
 
     let respuesta = cliente()?
@@ -298,7 +298,7 @@ pub async fn libretas(credencial: &crate::cuentas::Credencial) -> Result<Vec<Lib
 /// el mismo pedido. `libretas_de` ya descarta las que no son del mismo origen;
 /// esto es para el caso de que se pida una que no vino de la lista.
 pub async fn contactos(
-    credencial: &crate::cuentas::Credencial,
+    credencial: &crate::accounts::Credencial,
     libreta: &str,
 ) -> Result<Vec<Contact>, String> {
     let home = direccion_de(credencial)?;
@@ -343,6 +343,13 @@ pub async fn contactos(
             vcard::split_cards(&datos)
                 .into_iter()
                 .filter_map(move |t| vcard::contact_from(&t, &url))
+        })
+        // La libreta a la que pertenece cada contacto, para que la ventana
+        // pueda filtrar por libreta (#4). Acá es la dirección de la libreta que
+        // se pidió, que es lo que la identifica en el servidor.
+        .map(|mut contact| {
+            contact.address_book_id = libreta.to_string();
+            contact
         })
         .collect())
 }

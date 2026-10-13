@@ -3,13 +3,17 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
 	AlertMessage,
+	Checkbox,
+	Chip,
 	EmptyState,
 	Panel,
 	SectionHeading,
 	StatusDot,
 } from '@vasakgroup/vue-libvasak';
+import { computed } from 'vue';
 import type { Cuenta } from '@/composables/use-agenda';
 import { interpolar } from '@/tools/interpolar';
+import type { AddressBook } from '@/tools/library-filter';
 import { NARROW_ONLY, NARROW_WRAP } from '@/tools/narrow-layout';
 import {
 	type AccountSyncStatus,
@@ -23,13 +27,49 @@ const props = defineProps<{
 	notices: string[];
 	syncStatuses?: AccountSyncStatus[];
 	refreshFailures?: SyncRequestFailure[];
+	/** Las libretas de todas las cuentas, para elegir cuáles se ven. */
+	addressBooks?: AddressBook[];
+	/** Las libretas ocultas, por su clave. */
+	hiddenBooks?: Set<string>;
+	/** Las categorías que hay para filtrar. */
+	categories?: string[];
+	/** Las categorías elegidas. */
+	selectedCategories?: Set<string>;
 }>();
 const emit = defineEmits<{
 	/** Ir a la lista, con la ventana angosta. */
 	forward: [];
+	/** Ocultar o volver a mostrar una libreta, por su clave. */
+	'toggle-book': [key: string];
+	/** Agregar o sacar una categoría del filtro. */
+	'toggle-category': [category: string];
+	/** Sacar el filtro de categorías entero. */
+	'clear-categories': [];
 }>();
 
 const { t, locale } = useI18n();
+
+/**
+ * Las libretas sólo valen la pena cuando hay más de una: con una sola, ocultarla
+ * es esconder la agenda entera, que no es para lo que está.
+ */
+const books = computed(() => props.addressBooks ?? []);
+const showBooks = computed(() => books.value.length > 1);
+
+/** El nombre de la cuenta como aclaración, sólo si hay libretas de más de una. */
+const multipleAccounts = computed(() => new Set(books.value.map((b) => b.accountId)).size > 1);
+
+function bookHidden(key: string): boolean {
+	return props.hiddenBooks?.has(key) ?? false;
+}
+
+const cats = computed(() => props.categories ?? []);
+
+function categorySelected(category: string): boolean {
+	return props.selectedCategories?.has(category) ?? false;
+}
+
+const anyCategorySelected = computed(() => (props.selectedCategories?.size ?? 0) > 0);
 
 /** La línea de sincronización de una cuenta, o `null` si no hay nada que decir. */
 function lineOf(accountId: string): SyncLine | null {
@@ -107,6 +147,58 @@ function textOf(line: SyncLine): string {
             <StatusDot :tone="lineOf(account.id)!.tone" :pulse="lineOf(account.id)!.pulse" class="mt-1" />
             <span class="min-w-0 break-words">{{ textOf(lineOf(account.id)!) }}</span>
           </span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- Elegir qué libretas se ven: una casilla por libreta. Es preferencia de
+         quien mira (se recuerda en el navegador de la ventana), no un dato del
+         servidor. Sólo con más de una libreta: con una sola no hay nada que
+         elegir. -->
+    <section v-if="showBooks" class="flex flex-col gap-2" data-testid="books">
+      <SectionHeading as="h2" :title="t('filtros.libretas')" />
+      <ul class="flex flex-col gap-1">
+        <li v-for="book in books" :key="book.key" class="flex min-w-0">
+          <!-- Marcada = se ve. El nombre de la cuenta como segunda línea sólo si
+               hay libretas de más de una: con una cuenta, repetirlo es ruido. -->
+          <Checkbox
+            :label="book.name"
+            :description="multipleAccounts ? book.accountName : undefined"
+            :model-value="!bookHidden(book.key)"
+            @change="emit('toggle-book', book.key)" />
+        </li>
+      </ul>
+    </section>
+
+    <!-- Las categorías (`CATEGORIES` de la tarjeta) que aparecen en las libretas
+         que se ven, para filtrar por ellas. Elegir varias muestra a quien esté
+         en alguna. Asignarlas o quitarlas es escritura y viene después. -->
+    <section v-if="cats.length > 0" class="flex flex-col gap-2" data-testid="categories">
+      <div class="flex items-center justify-between gap-2">
+        <SectionHeading as="h2" :title="t('filtros.categorias')" />
+        <!-- Quitar el filtro, sólo cuando hay algo que quitar. -->
+        <ActionButton
+          v-if="anyCategorySelected"
+          variant="ghost"
+          size="sm"
+          icon="edit-clear"
+          icon-type="symbol"
+          label=""
+          :icon-alt="t('filtros.limpiarCategorias')"
+          :title="t('filtros.limpiarCategorias')"
+          @click="emit('clear-categories')" />
+      </div>
+      <ul class="flex flex-wrap gap-1" :aria-label="t('filtros.categorias')">
+        <li v-for="category in cats" :key="category" class="flex min-w-0">
+          <!-- La pastilla de la librería. Elegida, con el tilde del tema delante
+               y `aria-pressed`: sin un estado propio, es la única señal de que
+               está puesta. -->
+          <Chip
+            :label="category"
+            interactive
+            :icon="categorySelected(category) ? 'object-select' : ''"
+            v-bind="{ 'aria-pressed': categorySelected(category) ? 'true' : 'false' }"
+            @click="emit('toggle-category', category)" />
         </li>
       </ul>
     </section>

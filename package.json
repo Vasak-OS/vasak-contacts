@@ -1,7 +1,7 @@
 {
   "name": "vasak-contacts",
   "private": true,
-  "version": "0.11.0",
+  "version": "0.12.0",
   "type": "module",
   "scripts": {
     "dev": "bunx --bun vite",
@@ -22,9 +22,9 @@
     "@vasakgroup/plugin-vsk-contextual-menu": "^2.0.3",
     "@vasakgroup/plugin-vsk-journal": "^2.0.1",
     "@vasakgroup/tauri-plugin-i18n": "^2.3.1",
-    "@vasakgroup/vue-libvasak": "^2.19.0",
+    "@vasakgroup/vue-libvasak": "^2.20.1",
     "pinia": "^3.0.4",
-    "vue": "^3.5.43"
+    "vue": "^3.5.44"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.15",

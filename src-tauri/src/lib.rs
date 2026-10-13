@@ -3,9 +3,9 @@
 //! Lo que hay acá no es decoración: cada pieza resuelve algo que en las
 //! aplicaciones reales del escritorio se rompió al menos una vez.
 
+mod accounts;
 mod carddav;
-mod comandos;
-mod cuentas;
+mod commands;
 mod dav;
 mod locales;
 mod photos;
@@ -37,10 +37,10 @@ pub fn run() {
         .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_shell::init())
         .invoke_handler(tauri::generate_handler![
-            comandos::listar_cuentas,
-            comandos::contactos_de_la_cuenta,
-            comandos::request_sync,
-            comandos::sync_status,
+            commands::listar_cuentas,
+            commands::contactos_de_la_cuenta,
+            commands::request_sync,
+            commands::sync_status,
             photos::contact_photo,
         ])
         .setup(|app| {

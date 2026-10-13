@@ -14,6 +14,7 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { type EffectScope, effectScope } from 'vue';
 import { useAgenda } from '@/composables/use-agenda';
 import { emptyContact } from '@/tools/address-book';
+import { bookKey, loadHiddenBooks } from '@/tools/library-filter';
 import AddressBookView from '@/views/AddressBookView.vue';
 import { answerCommand, emit, invokedCommands, listenerCount, olvidarTodo } from './dobles';
 
@@ -44,6 +45,7 @@ afterEach(() => {
 	mounted?.unmount();
 	mounted = null;
 	olvidarTodo();
+	globalThis.localStorage?.clear();
 	document.body.innerHTML = '';
 });
 
@@ -211,5 +213,135 @@ describe('el aviso del almacén', () => {
 		expect(listenerCount(STORE_EVENT)).toBe(1);
 		open.stop();
 		expect(listenerCount(STORE_EVENT)).toBe(0);
+	});
+});
+
+describe('elegir qué libretas se ven y filtrar por categoría', () => {
+	const ANA_P = emptyContact({
+		name: 'Ana Pérez',
+		sort_key: 'Pérez, Ana',
+		url: 'store:a1:https://x/ana.vcf',
+		address_book_id: 'personal',
+		categories: ['Trabajo'],
+	});
+	const CARLA_T = emptyContact({
+		name: 'Carla Soto',
+		sort_key: 'Soto, Carla',
+		url: 'store:a1:https://x/carla.vcf',
+		address_book_id: 'trabajo',
+		categories: ['Trabajo', 'Clientes'],
+	});
+	const BRUNO_P = emptyContact({
+		name: 'Bruno Álvarez',
+		sort_key: 'Álvarez, Bruno',
+		url: 'store:a2:https://x/bruno.vcf',
+		address_book_id: 'personal',
+		categories: ['Amigos'],
+	});
+
+	/** Cada cuenta contesta con sus libretas y sus contactos. */
+	function answerWithBooks() {
+		answerCommand('listar_cuentas', () => ACCOUNTS);
+		answerCommand('contactos_de_la_cuenta', (args) => {
+			switch (String(args?.accountId)) {
+				case 'a1':
+					return {
+						libretas: [
+							{ url: 'personal', nombre: 'Personal' },
+							{ url: 'trabajo', nombre: 'Trabajo' },
+						],
+						contactos: [ANA_P, CARLA_T],
+						fallos: [],
+					};
+				case 'a2':
+					return {
+						libretas: [{ url: 'personal', nombre: 'Personal' }],
+						contactos: [BRUNO_P],
+						fallos: [],
+					};
+				default:
+					return { libretas: [], contactos: [], fallos: [] };
+			}
+		});
+	}
+
+	test('junta las libretas de todas las cuentas, con la cuenta en la clave', async () => {
+		answerWithBooks();
+		const { addressBooks, cargar } = agenda();
+		await cargar();
+
+		expect(addressBooks.value.map((b) => b.key)).toEqual([
+			bookKey('a1', 'personal'),
+			bookKey('a1', 'trabajo'),
+			bookKey('a2', 'personal'),
+		]);
+	});
+
+	test('tagua cada contacto con su cuenta: dos libretas con el mismo id no se confunden', async () => {
+		answerWithBooks();
+		const { visibles, cargar } = agenda();
+		await cargar();
+
+		const ana = visibles.value.find((c) => c.name === 'Ana Pérez');
+		const bruno = visibles.value.find((c) => c.name === 'Bruno Álvarez');
+		expect(ana?.account_id).toBe('a1');
+		expect(bruno?.account_id).toBe('a2');
+	});
+
+	test('ocultar una libreta saca a los suyos y lo recuerda', async () => {
+		answerWithBooks();
+		const { visibles, cargar, toggleBook } = agenda();
+		await cargar();
+		expect(visibles.value.map((c) => c.name)).toContain('Carla Soto');
+
+		toggleBook(bookKey('a1', 'trabajo'));
+
+		// Ordenados por apellido: Álvarez antes que Pérez.
+		expect(visibles.value.map((c) => c.name)).toEqual(['Bruno Álvarez', 'Ana Pérez']);
+		// Y se guardó, para la próxima vez que se abra.
+		expect(loadHiddenBooks().has(bookKey('a1', 'trabajo'))).toBe(true);
+	});
+
+	test('una libreta oculta de antes se aplica al abrir', async () => {
+		// La preferencia vive en el navegador de la ventana: una sesión anterior
+		// la escribió, y al abrir ya no se ve esa libreta.
+		globalThis.localStorage?.setItem(
+			'vasak-contacts.hidden-address-books',
+			JSON.stringify([bookKey('a2', 'personal')])
+		);
+		answerWithBooks();
+		const { visibles, cargar } = agenda();
+		await cargar();
+
+		expect(visibles.value.map((c) => c.name)).not.toContain('Bruno Álvarez');
+	});
+
+	test('las categorías salen de las libretas que se ven', async () => {
+		answerWithBooks();
+		const { categories, cargar, toggleBook } = agenda();
+		await cargar();
+		// Están las de todas las libretas, ordenadas y sin repetir.
+		expect(categories.value).toEqual(['Amigos', 'Clientes', 'Trabajo']);
+
+		// Al ocultar «trabajo», sus categorías exclusivas se van de la lista.
+		toggleBook(bookKey('a1', 'trabajo'));
+		expect(categories.value).toEqual(['Amigos', 'Trabajo']);
+	});
+
+	test('filtrar por categoría muestra a quien esté en alguna, y se puede limpiar', async () => {
+		answerWithBooks();
+		const { visibles, cargar, toggleCategory, clearCategories } = agenda();
+		await cargar();
+
+		toggleCategory('Amigos');
+		expect(visibles.value.map((c) => c.name)).toEqual(['Bruno Álvarez']);
+
+		toggleCategory('Clientes');
+		// Ordenados por apellido: Álvarez antes que Soto. Ana queda afuera: sólo
+		// tiene «Trabajo».
+		expect(visibles.value.map((c) => c.name)).toEqual(['Bruno Álvarez', 'Carla Soto']);
+
+		clearCategories();
+		expect(visibles.value).toHaveLength(3);
 	});
 });

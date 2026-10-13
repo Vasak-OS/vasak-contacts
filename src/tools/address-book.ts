@@ -73,6 +73,19 @@ export interface Contact {
 	organization: string;
 	notes: string;
 	url: string;
+	/**
+	 * En qué libreta vive la tarjeta: el id de la libreta del almacén, o su
+	 * dirección cuando la lectura va al servidor. Lo pone el programa, no sale
+	 * de la tarjeta sino de **dónde estaba**. Sirve para elegir qué libretas se
+	 * ven (`tools/library-filter.ts`).
+	 */
+	address_book_id: string;
+	/**
+	 * De qué cuenta es el contacto. **Lo pone la ventana** al juntar lo de cada
+	 * cuenta (`use-agenda.ts`), no el programa: dos cuentas pueden tener una
+	 * libreta con el mismo id, y sin la cuenta no se distinguen al filtrar.
+	 */
+	account_id: string;
 	/** La foto como `data:` URI; vacía si no vino adentro de la tarjeta. */
 	photo: string;
 	/**
@@ -115,6 +128,8 @@ export function emptyContact(overrides: Partial<Contact> = {}): Contact {
 		organization: '',
 		notes: '',
 		url: '',
+		address_book_id: '',
+		account_id: '',
 		photo: '',
 		photo_url: '',
 		photo_skipped: null,
