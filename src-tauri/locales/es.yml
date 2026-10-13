@@ -84,3 +84,16 @@ contact:
 nav:
   accounts: Cuentas
   contacts: Contactos
+# Cómo va la sincronización de cada cuenta, en el panel de cuentas.
+sync:
+  pending: Esperando para sincronizar
+  syncing: Sincronizando…
+  synced: Al día
+  syncedAt: "Al día · {0}"
+  failed: "No se pudo sincronizar: {0}"
+  unavailable: "No disponible: {0}"
+  request:
+    denied: No diste permiso para sincronizar esta cuenta
+    too_soon: Se acaba de actualizar; en un momento se puede de nuevo
+    unavailable: El servicio de sincronización no está funcionando
+    failed: No se pudo pedir la sincronización

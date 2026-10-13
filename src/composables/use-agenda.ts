@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { computed, onScopeDispose, ref } from 'vue';
 import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
+import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
 
 /** Una cuenta conectada que tiene libretas. */
 export interface Cuenta {
@@ -24,6 +25,9 @@ export interface Libreta {
 
 /** El aviso del programa de que cambió lo guardado de los contactos. */
 const STORE_CHANGED_EVENT = 'contacts-changed';
+
+/** El aviso del programa de que cambió el estado de la sincronización. */
+const SYNC_STATUS_EVENT = 'contacts-sync-status';
 
 interface LecturaDeCuenta {
 	libretas: Libreta[];
@@ -138,17 +142,39 @@ export function useAgenda(locale: () => string) {
 	 * cada cuenta, y relee lo que hay mientras tanto. Lo que llegue después se
 	 * avisa con [`STORE_CHANGED_EVENT`].
 	 */
-	async function refresh() {
+	/** El estado de la sincronización de cada cuenta, del almacén. */
+	const syncStatuses = ref<AccountSyncStatus[]>([]);
+	/** Las cuentas a las que el último «Actualizar» no les pudo pedir una vuelta. */
+	const refreshFailures = ref<SyncRequestFailure[]>([]);
+
+	/**
+	 * Lee el estado de la sincronización. Si no se puede, se deja el que había:
+	 * no saber el estado no es un error que haya que mostrar encima de la agenda.
+	 */
+	async function loadSyncStatus() {
 		try {
-			// Las que hay que reconectar no: el sincronizador no puede con ellas
-			// hasta que la persona lo haga desde Configuración.
-			await invoke('request_sync', {
-				accountIds: cuentas.value.filter((c) => !c.necesita_reconectarse).map((c) => c.id),
-			});
+			const statuses = await invoke<AccountSyncStatus[]>('sync_status');
+			syncStatuses.value = Array.isArray(statuses) ? statuses : [];
+		} catch (e) {
+			console.error('no se pudo leer el estado de la sincronización', e);
+		}
+	}
+
+	async function refresh() {
+		// Las que hay que reconectar no: el sincronizador no puede con ellas
+		// hasta que la persona lo haga desde Configuración.
+		const accountIds = cuentas.value.filter((c) => !c.necesita_reconectarse).map((c) => c.id);
+		try {
+			const failures = await invoke<SyncRequestFailure[]>('request_sync', { accountIds });
+			refreshFailures.value = Array.isArray(failures) ? failures : [];
 		} catch (e) {
 			console.error('no se pudo pedir una vuelta al sincronizador', e);
+			refreshFailures.value = accountIds.map((account_id) => ({
+				account_id,
+				reason: 'unavailable' as const,
+			}));
 		}
-		await cargar();
+		await Promise.all([loadSyncStatus(), cargar()]);
 	}
 
 	// Lo nuevo que trae el sincronizador en segundo plano: se relee la agenda.
@@ -170,8 +196,28 @@ export function useAgenda(locale: () => string) {
 			// Sin el aviso queda el botón de actualizar: se pierde enterarse solo.
 			console.error('no se pudo escuchar al almacén de contactos', e);
 		});
+	// El estado de la sincronización, cada vez que cambia. Un «se pidió hace un
+	// momento» deja de valer en cuanto hay una vuelta en marcha.
+	let stopWatchingStatus: UnlistenFn | null = null;
+	void loadSyncStatus();
+	listen(SYNC_STATUS_EVENT, () => {
+		refreshFailures.value = refreshFailures.value.filter((f) => f.reason !== 'too_soon');
+		void loadSyncStatus();
+	})
+		.then((cancelar) => {
+			if (descartado) {
+				cancelar();
+				return;
+			}
+			stopWatchingStatus = cancelar;
+		})
+		.catch((e) => {
+			console.error('no se pudo escuchar el estado de la sincronización', e);
+		});
+
 	onScopeDispose(() => {
 		descartado = true;
+		stopWatchingStatus?.();
 		dejarDeEscuchar?.();
 	});
 
@@ -189,6 +235,8 @@ export function useAgenda(locale: () => string) {
 		avisos,
 		cargar,
 		refresh,
+		syncStatuses,
+		refreshFailures,
 		elegir,
 	};
 }

@@ -13,8 +13,19 @@ import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneClass } from '@/tools/narrow-layout';
 
 const { t, locale } = useI18n();
-const { cuentas, visibles, elegido, consulta, cargando, avisos, cargar, refresh, elegir } =
-	useAgenda(() => locale.value);
+const {
+	cuentas,
+	visibles,
+	elegido,
+	consulta,
+	cargando,
+	avisos,
+	cargar,
+	refresh,
+	elegir,
+	syncStatuses,
+	refreshFailures,
+} = useAgenda(() => locale.value);
 
 const countLabel = computed(() =>
 	interpolar(t(claveSegunCantidad('lista.cuantos', visibles.value.length)), visibles.value.length)
@@ -154,6 +165,8 @@ onMounted(cargar);
     <AccountsPanel
       :accounts="cuentas"
       :notices="avisos"
+      :sync-statuses="syncStatuses"
+      :refresh-failures="refreshFailures"
       v-bind="{ 'data-pane': 'accounts' }"
       :class="paneClass('accounts', pane)"
       @forward="go('list')" />

@@ -69,3 +69,15 @@ contact:
 nav:
   accounts: Accounts
   contacts: Contacts
+sync:
+  pending: Waiting to sync
+  syncing: Syncing…
+  synced: Up to date
+  syncedAt: "Up to date · {0}"
+  failed: "Could not sync: {0}"
+  unavailable: "Not available: {0}"
+  request:
+    denied: You did not allow syncing this account
+    too_soon: Just refreshed; you can refresh again in a moment
+    unavailable: The sync service is not running
+    failed: Could not request a sync
