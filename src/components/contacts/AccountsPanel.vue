@@ -29,13 +29,15 @@ const emit = defineEmits<{
 	forward: [];
 }>();
 
-const { t } = useI18n();
+const { t, locale } = useI18n();
 
 /** La línea de sincronización de una cuenta, o `null` si no hay nada que decir. */
 function lineOf(accountId: string): SyncLine | null {
 	return syncLine(
 		props.syncStatuses?.find((s) => s.account_id === accountId),
-		props.refreshFailures?.find((f) => f.account_id === accountId)
+		props.refreshFailures?.find((f) => f.account_id === accountId),
+		new Date(),
+		locale.value
 	);
 }
 

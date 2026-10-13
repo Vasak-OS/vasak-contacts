@@ -419,8 +419,12 @@ async fn follow(app: &tauri::AppHandle) -> Result<(), String> {
         .map(|m| m.map(|_| Notice::Status));
     let mut avisos = futures_util::stream::select(changes, statuses);
     while let Some(aviso) = avisos.next().await {
-        let Ok(first) = aviso else {
-            continue;
+        let first = match aviso {
+            Ok(first) => first,
+            Err(e) => {
+                eprintln!("[contactos] llegó un aviso del almacén que no se pudo leer: {e}");
+                continue;
+            }
         };
         // Una vuelta escribe de a lotes y avisa por cada uno: los seguidos se
         // juntan, y la ventana recibe un aviso de cada clase.

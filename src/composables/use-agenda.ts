@@ -137,11 +137,6 @@ export function useAgenda(locale: () => string) {
 		}
 	}
 
-	/**
-	 * El botón «Actualizar»: le pide al sincronizador que traiga ya lo nuevo de
-	 * cada cuenta, y relee lo que hay mientras tanto. Lo que llegue después se
-	 * avisa con [`STORE_CHANGED_EVENT`].
-	 */
 	/** El estado de la sincronización de cada cuenta, del almacén. */
 	const syncStatuses = ref<AccountSyncStatus[]>([]);
 	/** Las cuentas a las que el último «Actualizar» no les pudo pedir una vuelta. */
@@ -160,6 +155,11 @@ export function useAgenda(locale: () => string) {
 		}
 	}
 
+	/**
+	 * El botón «Actualizar»: le pide al sincronizador que traiga ya lo nuevo de
+	 * cada cuenta, y relee lo que hay mientras tanto. Lo que llegue después se
+	 * avisa con [`STORE_CHANGED_EVENT`].
+	 */
 	async function refresh() {
 		// Las que hay que reconectar no: el sincronizador no puede con ellas
 		// hasta que la persona lo haga desde Configuración.
