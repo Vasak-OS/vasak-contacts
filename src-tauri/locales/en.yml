@@ -65,6 +65,11 @@ contact:
     profile: profile
     anniversary: anniversary
     school: school
+# Elegir qué libretas se ven y filtrar por categoría, en el panel de cuentas.
+filtros:
+  libretas: Address books
+  categorias: Categories
+  limpiarCategorias: Clear the category filter
 # Los botones de ir y volver entre columnas, con la ventana angosta.
 nav:
   accounts: Accounts

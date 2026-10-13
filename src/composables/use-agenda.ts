@@ -2,6 +2,15 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { computed, onScopeDispose, ref } from 'vue';
 import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
+import {
+	type AddressBook,
+	collectAddressBooks,
+	collectCategories,
+	filterByBooks,
+	filterByCategories,
+	loadHiddenBooks,
+	saveHiddenBooks,
+} from '@/tools/library-filter';
 import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
 
 /** Una cuenta conectada que tiene libretas. */
@@ -53,6 +62,20 @@ export function useAgenda(locale: () => string) {
 	/** Lo que impidió leer algo, en el idioma de lo que la persona puede hacer. */
 	const avisos = ref<string[]>([]);
 
+	/** Las libretas de todas las cuentas, para elegir cuáles se ven. */
+	const addressBooks = ref<AddressBook[]>([]);
+	/**
+	 * Qué libretas se ocultaron. Es preferencia de quien mira, así que se
+	 * recuerda en el navegador de la ventana entre una sesión y la siguiente.
+	 * Ver `tools/library-filter.ts`.
+	 */
+	const hiddenBooks = ref<Set<string>>(loadHiddenBooks());
+	/**
+	 * Qué categorías se eligieron para filtrar. No se recuerda: es un filtro del
+	 * momento, como la búsqueda escrita.
+	 */
+	const selectedCategories = ref<Set<string>>(new Set());
+
 	/**
 	 * Cuál es la carga vigente.
 	 *
@@ -62,9 +85,48 @@ export function useAgenda(locale: () => string) {
 	 */
 	let vigente = 0;
 
+	/**
+	 * Lo de las libretas que se ven. La lista de categorías sale de acá y no de
+	 * lo ya filtrado por categoría: así marcar una categoría no hace desaparecer
+	 * a las demás de la barra.
+	 */
+	const afterBooks = computed(() => filterByBooks(contactos.value, hiddenBooks.value));
+	/** Las categorías que hay para filtrar, de las libretas que se ven. */
+	const categories = computed(() => collectCategories(afterBooks.value, locale()));
+	const afterCategories = computed(() =>
+		filterByCategories(afterBooks.value, selectedCategories.value)
+	);
 	/** Ordenados con el comparador del idioma de la sesión. Ver `address-book.ts`. */
-	const enOrden = computed(() => sortContacts(contactos.value, locale()));
+	const enOrden = computed(() => sortContacts(afterCategories.value, locale()));
 	const visibles = computed(() => searchContacts(enOrden.value, consulta.value));
+
+	/** Oculta o vuelve a mostrar una libreta, y recuerda la decisión. */
+	function toggleBook(key: string) {
+		const next = new Set(hiddenBooks.value);
+		if (next.has(key)) {
+			next.delete(key);
+		} else {
+			next.add(key);
+		}
+		hiddenBooks.value = next;
+		saveHiddenBooks(next);
+	}
+
+	/** Agrega o saca una categoría del filtro. */
+	function toggleCategory(category: string) {
+		const next = new Set(selectedCategories.value);
+		if (next.has(category)) {
+			next.delete(category);
+		} else {
+			next.add(category);
+		}
+		selectedCategories.value = next;
+	}
+
+	/** Saca el filtro de categorías entero. */
+	function clearCategories() {
+		selectedCategories.value = new Set();
+	}
 
 	async function cargar() {
 		const mio = ++vigente;
@@ -83,6 +145,11 @@ export function useAgenda(locale: () => string) {
 			cuentas.value = Array.isArray(conectadas) ? conectadas : [];
 
 			const juntados: Contact[] = [];
+			const librosPorCuenta: {
+				accountId: string;
+				accountName: string;
+				books: Libreta[];
+			}[] = [];
 			for (const cuenta of cuentas.value) {
 				if (cuenta.necesita_reconectarse) {
 					// No se intenta: el servicio ya sabe que la credencial no
@@ -94,7 +161,17 @@ export function useAgenda(locale: () => string) {
 					const lectura = await invoke<LecturaDeCuenta>('contactos_de_la_cuenta', {
 						accountId: cuenta.id,
 					});
-					juntados.push(...lectura.contactos);
+					// De qué cuenta es cada contacto lo pone la ventana: el
+					// programa no lo manda, y hace falta para distinguir dos
+					// libretas con el mismo id en dos cuentas. Ver `library-filter`.
+					for (const contacto of lectura.contactos) {
+						juntados.push({ ...contacto, account_id: cuenta.id });
+					}
+					librosPorCuenta.push({
+						accountId: cuenta.id,
+						accountName: cuenta.nombre,
+						books: Array.isArray(lectura.libretas) ? lectura.libretas : [],
+					});
 					nuevosAvisos.push(...lectura.fallos);
 				} catch (e) {
 					// Una cuenta que falla no puede vaciar la agenda de las
@@ -108,6 +185,7 @@ export function useAgenda(locale: () => string) {
 				return;
 			}
 			contactos.value = juntados;
+			addressBooks.value = collectAddressBooks(librosPorCuenta);
 
 			// El que estaba abierto se **reemplaza** por su versión nueva, no
 			// se deja como estaba: si alguien le cambió el teléfono desde otro
@@ -127,6 +205,7 @@ export function useAgenda(locale: () => string) {
 			// simplemente no hay contactos que mostrar.
 			cuentas.value = [];
 			contactos.value = [];
+			addressBooks.value = [];
 			elegido.value = null;
 			nuevosAvisos.push(String(e));
 		} finally {
@@ -238,5 +317,12 @@ export function useAgenda(locale: () => string) {
 		syncStatuses,
 		refreshFailures,
 		elegir,
+		addressBooks,
+		hiddenBooks,
+		categories,
+		selectedCategories,
+		toggleBook,
+		toggleCategory,
+		clearCategories,
 	};
 }

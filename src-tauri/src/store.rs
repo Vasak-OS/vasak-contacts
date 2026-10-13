@@ -20,7 +20,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::carddav::Libreta;
-use crate::comandos::LecturaDeCuenta;
+use crate::commands::LecturaDeCuenta;
 use crate::vcard;
 
 const SERVICE: &str = "ar.net.vasak.os.AccountsSync";
@@ -146,6 +146,9 @@ pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::
         .filter(|t| t.vcard.len() <= MAX_CARD_BYTES)
         .flat_map(|t| {
             let base = identity(account_id, &t);
+            // La libreta no sale de la tarjeta sino de dónde estaba: se la pone
+            // acá, para que la ventana pueda filtrar por libreta (#4).
+            let address_book_id = t.address_book_id.clone();
             vcard::split_cards(&t.vcard)
                 .into_iter()
                 .enumerate()
@@ -155,7 +158,10 @@ pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::
                     } else {
                         format!("{base}#{i}")
                     };
-                    vcard::contact_from(&card, &id)
+                    vcard::contact_from(&card, &id).map(|mut contact| {
+                        contact.address_book_id = address_book_id.clone();
+                        contact
+                    })
                 })
                 .collect::<Vec<_>>()
         })
@@ -587,10 +593,15 @@ mod tests {
         assert_eq!(contacts.len(), 1);
         let ana = &contacts[0];
 
-        // Lo mismo que daría el intérprete de la ventana, campo por campo.
-        let expected =
+        // Lo mismo que daría el intérprete de la ventana, campo por campo, más
+        // la libreta, que no sale de la tarjeta sino de dónde estaba.
+        let mut expected =
             vcard::contact_from(raw, &identity("cuenta", &stored)).expect("la tarjeta se lee");
+        expected.address_book_id = "1".into();
         assert_eq!(ana, &expected);
+        // La libreta de la tarjeta viaja con el contacto: es lo que deja filtrar
+        // por libreta (#4).
+        assert_eq!(ana.address_book_id, "1");
 
         assert_eq!(ana.name, "Ana Pérez");
         assert_eq!(ana.url, "store:cuenta:https://x/a/ana.vcf");
@@ -632,6 +643,55 @@ mod tests {
                 ("Contacto 4", "store:cuenta:https://x/a/4.vcf"),
             ]
         );
+    }
+
+    /// Cada contacto sale con la libreta en la que vive —el `address_book_id`
+    /// de su tarjeta—, que es lo que deja elegir qué libretas se ven (#4). Dos
+    /// tarjetas del mismo recurso llevan la misma, y una sin libreta sale
+    /// vacía.
+    #[test]
+    fn cada_contacto_sale_con_la_libreta_de_su_tarjeta() {
+        let personal = StoredCard {
+            id: "1".into(),
+            address_book_id: "personal".into(),
+            href: "https://x/a/1.vcf".into(),
+            vcard: named(1),
+        };
+        let trabajo = StoredCard {
+            id: "2".into(),
+            address_book_id: "trabajo".into(),
+            href: "https://x/b/2.vcf".into(),
+            vcard: named(2),
+        };
+        let sin_libreta = StoredCard {
+            id: "3".into(),
+            address_book_id: String::new(),
+            href: "https://x/c/3.vcf".into(),
+            vcard: named(3),
+        };
+
+        let contacts = contacts_from("cuenta", vec![personal, trabajo, sin_libreta]);
+        let libretas: Vec<&str> = contacts
+            .iter()
+            .map(|c| c.address_book_id.as_str())
+            .collect();
+        assert_eq!(libretas, vec!["personal", "trabajo", ""]);
+    }
+
+    /// Un recurso con dos tarjetas: las dos quedan con la libreta del recurso.
+    #[test]
+    fn dos_tarjetas_de_un_recurso_comparten_su_libreta() {
+        let two = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nEND:VCARD\r\n\
+                   BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bruno\r\nEND:VCARD\r\n";
+        let stored = StoredCard {
+            id: "7".into(),
+            address_book_id: "compartida".into(),
+            href: "https://x/todos.vcf".into(),
+            vcard: two.into(),
+        };
+        let contacts = contacts_from("a1", vec![stored]);
+        assert_eq!(contacts.len(), 2);
+        assert!(contacts.iter().all(|c| c.address_book_id == "compartida"));
     }
 
     // ── Las formas del almacén ─────────────────────────────────────────────
@@ -680,10 +740,9 @@ mod tests {
         assert_eq!(asked, vec![String::new()]);
         assert_eq!(lectura.contactos.len(), 1);
         assert_eq!(lectura.contactos[0].url, "store:cuenta:https://x/a/ana.vcf");
-        assert_eq!(
-            lectura.contactos[0],
-            vcard::contact_from(raw, "store:cuenta:https://x/a/ana.vcf").unwrap()
-        );
+        let mut expected = vcard::contact_from(raw, "store:cuenta:https://x/a/ana.vcf").unwrap();
+        expected.address_book_id = "1".into();
+        assert_eq!(lectura.contactos[0], expected);
         assert_eq!(lectura.libretas[0].nombre, "Personal");
         assert!(lectura.fallos.is_empty());
     }

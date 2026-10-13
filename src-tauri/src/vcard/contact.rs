@@ -142,6 +142,13 @@ pub struct Contact {
     /// La dirección de la tarjeta en el servidor, para volver a buscarla.
     #[serde(default)]
     pub url: String,
+    /// En qué libreta vive la tarjeta: el id de la libreta del almacén, o su
+    /// dirección cuando la lectura va al servidor. Lo pone quien arma el
+    /// contacto —`store::contacts_from` y `carddav::contactos`—, no el
+    /// intérprete de vCard: no sale de la tarjeta sino de **dónde estaba**. La
+    /// ventana lo usa para dejar elegir qué libretas se ven (vasak-contacts#4).
+    #[serde(default)]
+    pub address_book_id: String,
 
     /// La foto como `data:` URI, lista para mostrar. Vacía si no hay.
     #[serde(default)]

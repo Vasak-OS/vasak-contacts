@@ -25,6 +25,13 @@ const {
 	elegir,
 	syncStatuses,
 	refreshFailures,
+	addressBooks,
+	hiddenBooks,
+	categories,
+	selectedCategories,
+	toggleBook,
+	toggleCategory,
+	clearCategories,
 } = useAgenda(() => locale.value);
 
 const countLabel = computed(() =>
@@ -167,9 +174,16 @@ onMounted(cargar);
       :notices="avisos"
       :sync-statuses="syncStatuses"
       :refresh-failures="refreshFailures"
+      :address-books="addressBooks"
+      :hidden-books="hiddenBooks"
+      :categories="categories"
+      :selected-categories="selectedCategories"
       v-bind="{ 'data-pane': 'accounts' }"
       :class="paneClass('accounts', pane)"
-      @forward="go('list')" />
+      @forward="go('list')"
+      @toggle-book="toggleBook"
+      @toggle-category="toggleCategory"
+      @clear-categories="clearCategories" />
     <ContactList
       :contacts="visibles"
       :selected="elegido"

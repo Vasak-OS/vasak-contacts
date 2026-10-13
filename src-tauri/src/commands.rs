@@ -9,8 +9,8 @@
 
 use serde::Serialize;
 
+use crate::accounts::{self, CuentaConLibreta};
 use crate::carddav;
-use crate::cuentas::{self, CuentaConLibreta};
 use crate::vcard::Contact;
 
 /// Lo que se pudo leer de una cuenta, y lo que no.
@@ -34,7 +34,7 @@ pub struct LecturaDeCuenta {
 /// falta la credencial.
 #[tauri::command]
 pub async fn listar_cuentas() -> Result<Vec<CuentaConLibreta>, String> {
-    cuentas::cuentas().await
+    accounts::cuentas().await
 }
 
 /// Los contactos de una cuenta.
@@ -59,7 +59,7 @@ pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuent
         }
         Err(e) => eprintln!("[contactos] el almacén no contestó, se va al servidor: {e}"),
     }
-    let credencial = cuentas::credencial_de(&account_id).await?;
+    let credencial = accounts::credencial_de(&account_id).await?;
     let libretas = carddav::libretas(&credencial).await?;
 
     let mut lectura = LecturaDeCuenta {
@@ -131,6 +131,23 @@ mod tests {
         };
         let json = serde_json::to_value(&lectura).unwrap();
         assert_eq!(json["contactos"][0]["sort_key"], "Álvarez, Ana");
+    }
+
+    /// La libreta de cada contacto viaja con el nombre que lee la ventana
+    /// (`src/tools/address-book.ts`): Tauri no convierte las claves, así que si
+    /// cambia el nombre del campo, el filtro por libreta (#4) deja de ver nada.
+    #[test]
+    fn cada_contacto_sale_con_su_libreta() {
+        let lectura = LecturaDeCuenta {
+            contactos: vec![Contact {
+                sort_key: "Pérez, Ana".into(),
+                address_book_id: "personal".into(),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&lectura).unwrap();
+        assert_eq!(json["contactos"][0]["address_book_id"], "personal");
     }
 
     /// Una libreta rota no puede vaciar la agenda: la persona tiene que ver las
