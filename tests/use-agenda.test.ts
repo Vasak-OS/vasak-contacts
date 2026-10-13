@@ -1,14 +1,16 @@
 /**
  * La agenda lee del almacén del sistema (`vasak-contacts#51`): el botón
- * «Actualizar» le pide una vuelta al sincronizador y relee, y el aviso
- * `contacts-changed` que pasa el programa relee solo.
+ * «Actualizar» le pide una vuelta al sincronizador y relee, y el aviso de
+ * cambios del plugin del almacén (`CHANGED_EVENT`) relee solo.
  *
- * `invoke` y `listen` son los dobles de `tests/dobles.ts`: lo que hace el
- * programa del otro lado —el bus, el almacén— se prueba en Rust
+ * `invoke` y `listen` son los dobles de `tests/dobles.ts`, por debajo del
+ * paquete `@vasakgroup/plugin-vsk-store`: el bus y la comprobación del dueño
+ * se prueban en el plugin, y la lectura del almacén en Rust
  * (`src-tauri/src/store.rs`).
  */
 
 import { afterEach, describe, expect, spyOn, test } from 'bun:test';
+import { CHANGED_EVENT } from '@vasakgroup/plugin-vsk-store';
 import { ActionButton } from '@vasakgroup/vue-libvasak';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { type EffectScope, effectScope } from 'vue';
@@ -18,7 +20,8 @@ import { bookKey, loadHiddenBooks } from '@/tools/library-filter';
 import AddressBookView from '@/views/AddressBookView.vue';
 import { answerCommand, emit, invokedCommands, listenerCount, olvidarTodo } from './dobles';
 
-const STORE_EVENT = 'contacts-changed';
+/** El pedido de «Actualizar» del plugin del almacén. */
+const REQUEST_SYNC = 'plugin:vsk-store|request_sync';
 
 const ANA = emptyContact({
 	name: 'Ana Pérez',
@@ -102,10 +105,10 @@ describe('refresh', () => {
 
 		await refresh();
 
-		const sync = invokedCommands.find((c) => c.command === 'request_sync');
+		const sync = invokedCommands.find((c) => c.command === REQUEST_SYNC);
 		expect(sync?.args).toEqual({ accountIds: ['a1', 'a2'] });
 		const order = commands();
-		expect(order.indexOf('request_sync')).toBeLessThan(order.indexOf('listar_cuentas'));
+		expect(order.indexOf(REQUEST_SYNC)).toBeLessThan(order.indexOf('listar_cuentas'));
 		expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez', 'Bruno Álvarez']);
 	});
 
@@ -121,7 +124,7 @@ describe('refresh', () => {
 
 		await refresh();
 
-		const sync = invokedCommands.find((c) => c.command === 'request_sync');
+		const sync = invokedCommands.find((c) => c.command === REQUEST_SYNC);
 		expect(sync?.args).toEqual({ accountIds: ['a1'] });
 	});
 
@@ -131,7 +134,7 @@ describe('refresh', () => {
 			answerAccounts({ a1: [ANA] });
 			const { contactos, avisos, cargar, refresh } = agenda();
 			await cargar();
-			answerCommand('request_sync', () => {
+			answerCommand(REQUEST_SYNC, () => {
 				throw new Error('el sincronizador no está');
 			});
 			answerAccounts({ a1: [ANA], a2: [BRUNO] });
@@ -162,21 +165,21 @@ describe('refresh', () => {
 		await refresh?.trigger('click');
 		await flushPromises();
 
-		expect(commands()).toContain('request_sync');
+		expect(commands()).toContain(REQUEST_SYNC);
 		expect(commands()).toContain('listar_cuentas');
 		expect(mounted.text()).toContain('Bruno Álvarez');
 	});
 });
 
 describe('el aviso del almacén', () => {
-	test('contacts-changed relee la agenda sola', async () => {
+	test('el aviso de cambios del almacén relee la agenda sola', async () => {
 		answerAccounts({ a1: [ANA] });
 		const { contactos, cargar } = agenda();
 		await cargar();
 		await flushPromises();
 		answerAccounts({ a1: [ANA], a2: [BRUNO] });
 
-		await emit(STORE_EVENT);
+		await emit(CHANGED_EVENT, { areas: ['contacts'] });
 		await flushPromises();
 
 		expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez', 'Bruno Álvarez']);
@@ -186,15 +189,15 @@ describe('el aviso del almacén', () => {
 		answerAccounts({ a1: [ANA] });
 		agenda();
 		await flushPromises();
-		expect(listenerCount(STORE_EVENT)).toBe(1);
+		expect(listenerCount(CHANGED_EVENT)).toBe(1);
 
 		scope?.stop();
 		scope = null;
 		invokedCommands.length = 0;
-		await emit(STORE_EVENT);
+		await emit(CHANGED_EVENT, { areas: ['contacts'] });
 		await flushPromises();
 
-		expect(listenerCount(STORE_EVENT)).toBe(0);
+		expect(listenerCount(CHANGED_EVENT)).toBe(0);
 		expect(commands()).toEqual([]);
 	});
 
@@ -210,9 +213,9 @@ describe('el aviso del almacén', () => {
 		closed.stop();
 		await flushPromises();
 
-		expect(listenerCount(STORE_EVENT)).toBe(1);
+		expect(listenerCount(CHANGED_EVENT)).toBe(1);
 		open.stop();
-		expect(listenerCount(STORE_EVENT)).toBe(0);
+		expect(listenerCount(CHANGED_EVENT)).toBe(0);
 	});
 });
 

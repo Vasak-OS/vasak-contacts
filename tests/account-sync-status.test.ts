@@ -2,11 +2,12 @@
  * Cómo va la sincronización de cada cuenta, en el panel de cuentas
  * (Vasak-OS/vasak-contacts#53).
  *
- * El estado sale de `sync_status` (el `GetStatus` del almacén) y se relee con el
- * aviso `contacts-sync-status`; «Actualizar» guarda a qué cuentas no se les
- * pudo pedir una vuelta. `invoke` y `listen` son los dobles de
- * `tests/dobles.ts`: el bus y el almacén se prueban en Rust
- * (`src-tauri/src/store.rs`).
+ * El estado sale de `syncStatus('contacts')` de `@vasakgroup/plugin-vsk-store`
+ * (el `GetStatus` del almacén) y se relee con su aviso `STATUS_EVENT`;
+ * «Actualizar» guarda a qué cuentas no se les pudo pedir una vuelta. `invoke`
+ * y `listen` son los dobles de `tests/dobles.ts`, por debajo del paquete del
+ * plugin: el bus, la comprobación del dueño y `syncLine` se prueban en el
+ * plugin.
  */
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
@@ -15,11 +16,17 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import { type EffectScope, effectScope } from 'vue';
 import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
 import { useAgenda } from '@/composables/use-agenda';
-import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
+import {
+	type AccountSyncStatus,
+	STATUS_EVENT,
+	type SyncRequestFailure,
+} from '@vasakgroup/plugin-vsk-store';
 import AddressBookView from '@/views/AddressBookView.vue';
 import { answerCommand, emit, invokedCommands, listenerCount, olvidarTodo } from './dobles';
 
-const STATUS_EVENT = 'contacts-sync-status';
+/** Los comandos del plugin del almacén, tal como los manda su paquete. */
+const SYNC_STATUS = 'plugin:vsk-store|sync_status';
+const REQUEST_SYNC = 'plugin:vsk-store|request_sync';
 
 const ACCOUNTS = [
 	{ id: 'a1', nombre: 'ana@nube.ejemplo.com', necesita_reconectarse: false },
@@ -78,16 +85,27 @@ async function quietly<T>(fn: () => Promise<T>): Promise<T> {
 
 describe('el estado de la sincronización', () => {
 	test('al abrir se lee el estado de cada cuenta del almacén', async () => {
-		answerCommand('sync_status', () => STATUSES);
+		answerCommand(SYNC_STATUS, () => STATUSES);
 		const { syncStatuses } = agenda();
 		await flushPromises();
 
-		expect(timesInvoked('sync_status')).toBe(1);
+		expect(timesInvoked(SYNC_STATUS)).toBe(1);
 		expect(syncStatuses.value).toEqual(STATUSES);
 	});
 
+	// El plugin sólo contesta las áreas que registró la aplicación: pedir otra,
+	// o ninguna, deja el panel sin estado y sin decir por qué.
+	test('el estado se pide sólo del área de los contactos', async () => {
+		answerCommand(SYNC_STATUS, () => STATUSES);
+		agenda();
+		await flushPromises();
+
+		const pedido = invokedCommands.find((c) => c.command === SYNC_STATUS);
+		expect(pedido?.args).toEqual({ area: 'contacts' });
+	});
+
 	test('una respuesta que no es una lista es ningún estado', async () => {
-		answerCommand('sync_status', () => ({ error: 'no' }));
+		answerCommand(SYNC_STATUS, () => ({ error: 'no' }));
 		const { syncStatuses } = agenda();
 		await flushPromises();
 
@@ -95,10 +113,10 @@ describe('el estado de la sincronización', () => {
 	});
 
 	test('si no se puede leer el estado, se queda el que había', async () => {
-		answerCommand('sync_status', () => STATUSES);
+		answerCommand(SYNC_STATUS, () => STATUSES);
 		const { syncStatuses } = agenda();
 		await flushPromises();
-		answerCommand('sync_status', () => {
+		answerCommand(SYNC_STATUS, () => {
 			throw new Error('GetStatus: el servicio no existe');
 		});
 
@@ -107,18 +125,18 @@ describe('el estado de la sincronización', () => {
 			await flushPromises();
 		});
 
-		expect(timesInvoked('sync_status')).toBe(2);
+		expect(timesInvoked(SYNC_STATUS)).toBe(2);
 		expect(syncStatuses.value).toEqual(STATUSES);
 	});
 
 	test('el aviso de estado relee el estado, no la agenda', async () => {
-		answerCommand('sync_status', () => STATUSES);
+		answerCommand(SYNC_STATUS, () => STATUSES);
 		const { syncStatuses } = agenda();
 		await flushPromises();
 		const synced: AccountSyncStatus[] = [
 			{ account_id: 'a1', state: 'synced', detail: '', last_synced_at: null },
 		];
-		answerCommand('sync_status', () => synced);
+		answerCommand(SYNC_STATUS, () => synced);
 
 		await emit(STATUS_EVENT);
 		await flushPromises();
@@ -152,7 +170,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 	test('se guarda qué cuentas rechazaron el pedido y por qué', async () => {
 		answerAccounts();
 		const failures: SyncRequestFailure[] = [{ account_id: 'a2', reason: 'denied' }];
-		answerCommand('request_sync', () => failures);
+		answerCommand(REQUEST_SYNC, () => failures);
 		const { cargar, refresh, refreshFailures } = agenda();
 		await cargar();
 
@@ -163,11 +181,11 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('un «Actualizar» que sale bien borra los rechazos del anterior', async () => {
 		answerAccounts();
-		answerCommand('request_sync', () => [{ account_id: 'a2', reason: 'failed' }]);
+		answerCommand(REQUEST_SYNC, () => [{ account_id: 'a2', reason: 'failed' }]);
 		const { cargar, refresh, refreshFailures } = agenda();
 		await cargar();
 		await refresh();
-		answerCommand('request_sync', () => []);
+		answerCommand(REQUEST_SYNC, () => []);
 
 		await refresh();
 
@@ -176,7 +194,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('si el programa no contesta, todas las cuentas pedidas quedan sin servicio', async () => {
 		answerAccounts([...ACCOUNTS, { id: 'vencida', nombre: 'vieja', necesita_reconectarse: true }]);
-		answerCommand('request_sync', () => {
+		answerCommand(REQUEST_SYNC, () => {
 			throw new Error('el programa no contesta');
 		});
 		const { cargar, refresh, refreshFailures } = agenda();
@@ -195,7 +213,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 		answerAccounts();
 		const { refresh, syncStatuses } = agenda();
 		await flushPromises();
-		answerCommand('sync_status', () => STATUSES);
+		answerCommand(SYNC_STATUS, () => STATUSES);
 
 		await refresh();
 
@@ -204,7 +222,7 @@ describe('lo que «Actualizar» no pudo pedir', () => {
 
 	test('el aviso de estado olvida «se acaba de pedir» y deja los demás rechazos', async () => {
 		answerAccounts();
-		answerCommand('request_sync', () => [
+		answerCommand(REQUEST_SYNC, () => [
 			{ account_id: 'a1', reason: 'too_soon' },
 			{ account_id: 'a2', reason: 'denied' },
 		]);
@@ -285,7 +303,7 @@ describe('la ventana', () => {
 
 	test('muestra el estado del almacén debajo de cada cuenta', async () => {
 		answerAccounts();
-		answerCommand('sync_status', () => STATUSES);
+		answerCommand(SYNC_STATUS, () => STATUSES);
 		const wrapper = view();
 		await flushPromises();
 
@@ -298,7 +316,7 @@ describe('la ventana', () => {
 		const wrapper = view();
 		await flushPromises();
 		expect(wrapper.find('[data-testid="sync-status"]').exists()).toBe(false);
-		answerCommand('request_sync', () => [{ account_id: 'a2', reason: 'too_soon' }]);
+		answerCommand(REQUEST_SYNC, () => [{ account_id: 'a2', reason: 'too_soon' }]);
 
 		const refresh = wrapper
 			.findAllComponents(ActionButton)

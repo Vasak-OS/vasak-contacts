@@ -73,13 +73,20 @@ where
     store
         .call_json(metodo, argumentos)
         .await
-        .map_err(|e| match &e {
-            StoreError::Store {
-                name: Some(name), ..
-            } => format!("{metodo}: {name}: {e}"),
-            other => format!("{metodo}: {other}"),
-        })
+        .map_err(|e| describe(metodo, &e))
         .and_then(capped)
+}
+
+/// El mensaje de un error del plugin, con el nombre del error de D-Bus cuando
+/// lo hay: el texto del plugin no lo lleva, y sin él
+/// [`crate::commands::denied_by_store`] no reconoce un «no».
+fn describe(metodo: &str, error: &StoreError) -> String {
+    match error {
+        StoreError::Store {
+            name: Some(name), ..
+        } => format!("{metodo}: {name}: {error}"),
+        other => format!("{metodo}: {other}"),
+    }
 }
 
 /// Rechaza una respuesta más grande que la página más grande que manda el
@@ -663,5 +670,151 @@ mod tests {
     fn una_respuesta_mas_grande_que_las_del_almacen_se_rechaza() {
         assert!(capped("x".repeat(MAX_REPLY_BYTES)).is_ok());
         assert!(capped("x".repeat(MAX_REPLY_BYTES + 1)).is_err());
+    }
+    // ── Los errores del plugin ─────────────────────────────────────────────
+
+    fn store_error(name: Option<&str>, message: &str) -> StoreError {
+        StoreError::Store {
+            name: name.map(str::to_string),
+            message: message.into(),
+        }
+    }
+
+    /// El texto de un error del plugin no lleva el nombre del error de D-Bus;
+    /// el mensaje tiene que llevarlo, o un «no» de la persona se lee como un
+    /// almacén caído y se le pide al servidor el permiso más fuerte.
+    #[test]
+    fn un_no_del_plugin_se_sigue_leyendo_como_un_no() {
+        let error = store_error(
+            Some("org.freedesktop.DBus.Error.AccessDenied"),
+            "sin permiso",
+        );
+        let mensaje = describe("ListAddressBooks", &error);
+        assert_eq!(
+            mensaje,
+            "ListAddressBooks: org.freedesktop.DBus.Error.AccessDenied: sin permiso"
+        );
+        assert!(crate::commands::denied_by_store(&mensaje));
+    }
+
+    #[test]
+    fn los_demas_errores_del_plugin_no_son_un_no() {
+        for error in [
+            store_error(Some("org.freedesktop.DBus.Error.ServiceUnknown"), "no está"),
+            store_error(Some("org.freedesktop.DBus.Error.Failed"), "falló"),
+            store_error(None, "sin nombre"),
+            StoreError::NotRunning,
+            StoreError::Impostor,
+            StoreError::Reply("rota".into()),
+        ] {
+            let mensaje = describe("ListContactCards", &error);
+            assert!(mensaje.starts_with("ListContactCards: "), "{mensaje}");
+            assert!(!crate::commands::denied_by_store(&mensaje), "{mensaje}");
+        }
+    }
+
+    // ── Por el cliente comprobado del plugin ───────────────────────────────
+
+    use crate::test_bus::{self, Calls, PrivateBus};
+
+    /// El almacén de mentira en el bus privado: anota cada pedido con sus
+    /// argumentos. Con `deny`, contesta que la persona no dio permiso.
+    #[derive(Clone, Default)]
+    struct FakeStore {
+        deny: bool,
+        calls: Calls,
+    }
+
+    #[zbus::interface(name = "ar.net.vasak.os.AccountsStore")]
+    impl FakeStore {
+        fn list_address_books(&self, account_id: String) -> zbus::fdo::Result<String> {
+            self.calls.push(format!("ListAddressBooks {account_id}"));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            Ok(serde_json::json!([{ "id": "1", "display_name": "Personal" }]).to_string())
+        }
+
+        fn list_contact_cards(
+            &self,
+            account_id: String,
+            address_book_id: String,
+            cursor: String,
+            limit: u32,
+        ) -> String {
+            self.calls.push(format!(
+                "ListContactCards {account_id} {address_book_id:?} {cursor:?} {limit}"
+            ));
+            if cursor.is_empty() {
+                page_json(&[1], Some("2"))
+            } else {
+                page_json(&[2], None)
+            }
+        }
+    }
+
+    /// Los contactos salen del sincronizador comprobado, de la cuenta pedida,
+    /// de todas sus libretas y página por página.
+    #[tokio::test]
+    async fn los_contactos_se_leen_del_almacen_por_el_cliente_del_plugin() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let lectura = read_contacts(&test_bus::client(true), "nube")
+            .await
+            .unwrap()
+            .expect("había libretas");
+
+        assert_eq!(names(&lectura), ["Contacto 1", "Contacto 2"]);
+        assert_eq!(lectura.libretas[0].nombre, "Personal");
+        assert_eq!(
+            calls.taken(),
+            [
+                "ListAddressBooks nube".to_string(),
+                format!("ListContactCards nube \"\" \"\" {PAGE_SIZE}"),
+                format!("ListContactCards nube \"\" \"2\" {PAGE_SIZE}"),
+            ]
+        );
+    }
+
+    /// Un `AccessDenied` de verdad, por el bus y por el plugin, llega a la
+    /// ventana como un «no»: no se va al servidor a pedir más.
+    #[tokio::test]
+    async fn un_no_del_almacen_por_el_bus_no_lleva_al_servidor() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore {
+            deny: true,
+            ..Default::default()
+        };
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = read_contacts(&test_bus::client(true), "nube")
+            .await
+            .unwrap_err();
+
+        assert!(error.starts_with("ListAddressBooks: "), "{error}");
+        assert!(crate::commands::denied_by_store(&error), "{error}");
+    }
+
+    /// A un impostor no se le pide nada, y su rechazo no se lee como un «no»
+    /// de la persona: la ventana va al servidor como con el almacén caído.
+    #[tokio::test]
+    async fn a_un_impostor_no_se_le_piden_los_contactos() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _impostor = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = read_contacts(&test_bus::client(false), "nube")
+            .await
+            .unwrap_err();
+
+        assert!(calls.taken().is_empty(), "{:?}", calls.taken());
+        assert!(!crate::commands::denied_by_store(&error), "{error}");
     }
 }

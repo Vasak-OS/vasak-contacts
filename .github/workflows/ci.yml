@@ -48,7 +48,11 @@ jobs:
       #   lld                    `src-tauri/.cargo/config.toml` enlaza con
       #                          `-fuse-ld=lld`, y la imagen del runner no lo trae
       #   build-essential        el compilador de C de los `-sys`
+      #   dbus-daemon            no es del grafo sino de las pruebas: las del
+      #                          almacén levantan un bus privado por prueba
+      #                          (`src-tauri/src/test_bus.rs`)
       paquetes_rust: >-
         libwebkit2gtk-4.1-dev
         lld
         build-essential
+        dbus-daemon

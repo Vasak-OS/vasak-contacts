@@ -10,6 +10,8 @@ mod dav;
 mod locales;
 mod photos;
 mod store;
+#[cfg(test)]
+mod test_bus;
 mod vcard;
 mod ventana;
 
