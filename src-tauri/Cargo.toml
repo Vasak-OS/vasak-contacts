@@ -39,7 +39,7 @@ zbus = { version = "5", default-features = false, features = ["tokio"] }
 futures-util = "0.3"
 # El cliente del almacén del sistema, compartido con mail, calendario y el
 # escritorio: comprueba al dueño del nombre del sincronizador antes de creerle.
-tauri-plugin-vsk-store = "0.1"
+tauri-plugin-vsk-store = "0.2"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "fs", "io-util"] }
 # CardDAV es HTTP con dos métodos más. rustls: es Rust puro, así que no suma
 # bibliotecas compartidas al paquete.
