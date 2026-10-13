@@ -1,140 +1,370 @@
-# vasak-contacts
+# Vasak contacts
 
-La libreta de direcciones de VasakOS. Muestra los contactos de las cuentas
-conectadas —las que se agregan desde Configuración— con búsqueda.
 
-Tauri 2 + Vue 3 + TypeScript + Tailwind 4, sobre la plantilla
-[`vapp`](https://github.com/Vasak-OS/vapp).
 
 ---
 
-## Qué hace hoy, y qué no
+## Tecnología
 
-**Hace:** lista las cuentas con libreta, descubre las libretas de cada una por
-CardDAV, trae todos los contactos y los muestra ordenados por apellido y
-agrupados por inicial. Se busca por nombre, apodo, organización, cargo, correo y
-teléfono. Desde un contacto se le puede escribir, llamar o copiar el dato.
+[![Rust](https://img.shields.io/badge/Rust-1.82%2B-orange?style=flat&logo=rust)](https://www.rust-lang.org/) [![Tauri](https://img.shields.io/badge/Tauri-2.0-24283b?style=flat&logo=tauri)](https://tauri.app/) [![Vue](https://img.shields.io/badge/Vue-3.5-42b883?style=flat&logo=vue.js)](https://vuejs.org/) [![TypeScript](https://img.shields.io/badge/TypeScript-5.6-3178c6?style=flat&logo=typescript)](https://www.typescriptlang.org/)
 
-La ficha muestra la foto (o las iniciales), el apodo, el cargo y la función, las
-direcciones en renglones, el cumpleaños y el aniversario —también sin año—, las
-webs, las redes y la mensajería, las categorías, y en «Más datos» los idiomas,
-la zona horaria, la ubicación y los campos a medida (`X-`). Lo que está vacío no
-se muestra.
+## Estado
 
-**Todavía no hace:**
-
-- **Crear, editar ni borrar contactos.** Escribir por CardDAV es su propio
-  trabajo (Vasak-OS/vasak-contacts#2): el `If-Match`, los conflictos con lo que
-  cambió otro cliente, y qué hacer cuando dos dispositivos editaron al mismo
-  tiempo.
-- **Las relaciones** (`RELATED`, las de Apple y las de Google) y los miembros de
-  un grupo (`MEMBER`): hay que resolverlas contra los demás contactos, y es
-  Vasak-OS/vasak-contacts#6.
-
-### Las fotos
-
-Las que vienen adentro de la tarjeta —base64 en la 2.1 y la 3.0, `data:` en la
-4.0— se decodifican una vez al leer, se reconocen por sus bytes (JPEG, PNG, GIF
-o WebP; un SVG no) y tienen su propio tope, 256 KiB.
-
-Las que vienen como una dirección, que es lo que manda Google, **no las pide
-nunca la ventana**: sería un rastreador de apertura. Las baja el programa una
-sola vez —sólo `https`, sin cookies ni `Referer`, sin redirecciones, sólo a
-direcciones públicas, con plazo y con el mismo tope—, comprueba que sean una
-imagen por el `Content-Type` y por los bytes, y las guarda en
-`$XDG_CACHE_HOME/vasak-contacts/photos/`. La ficha las muestra siempre desde
-ahí. Si una falla, no se vuelve a intentar por seis horas. Esta caché pasa al
-almacén local del servicio del usuario cuando exista (decisión 6 del taller).
+[![CI](https://github.com/Vasak-OS/vasak-contacts/actions/workflows/ci.yml/badge.svg)](https://github.com/Vasak-OS/vasak-contacts/actions/workflows/ci.yml)
+[![Versión](https://img.shields.io/github/v/release/Vasak-OS/vasak-contacts?style=flat&label=Versi%C3%B3n)](https://github.com/Vasak-OS/vasak-contacts/releases)
+[![Licencia](https://img.shields.io/github/license/Vasak-OS/vasak-contacts?style=flat)](LICENSE)
+[![Cobertura](https://sonarcloud.io/api/project_badges/measure?project=Vasak-OS_vasak-contacts&metric=coverage&style=flat)](https://sonarcloud.io/summary/new_code?id=Vasak-OS_vasak-contacts)
+[![Quality Gate](https://sonarcloud.io/api/project_badges/measure?project=Vasak-OS_vasak-contacts&metric=alert_status&style=flat)](https://sonarcloud.io/summary/new_code?id=Vasak-OS_vasak-contacts)
+[![Tamaño repo](https://img.shields.io/github/repo-size/Vasak-OS/vasak-contacts?style=flat)](https://github.com/Vasak-OS/vasak-contacts)
 
 ---
 
-## De dónde salen los contactos
+## Descripción
 
-De `vasak-accounts`, por D-Bus en el bus del sistema. **Esta aplicación no le
-pide la contraseña a nadie**: la cuenta se conecta una vez desde Configuración y
-acá se le pide al servicio la credencial cuando hace falta. La primera vez
-aparece el diálogo de permiso del sistema; listar las cuentas no lo dispara.
 
-### El límite
 
-Pide **`account.contacts` y nada más**, y `vasak-permissions` lo tiene declarado
-para `/usr/bin/vasak-contacts`, así que un pedido fuera de ahí se niega sin
-siquiera preguntarle a la persona.
+**Para el usuario:** 
 
-Acá importa especialmente: **los contactos y los calendarios viven en el mismo
-servidor y detrás de la misma contraseña**. Un Nextcloud entrega
-`/remote.php/dav/calendars/…` y `/remote.php/dav/addressbooks/…` con la misma
-credencial de aplicación. Con el alcance declarado en las dos aplicaciones, el
-límite queda de los dos lados: el calendario no llega a la agenda y la agenda no
-llega a los eventos.
+**Integración VasakOS:** Integra con el ecosistema VasakOS vía D-Bus y configuración compartida.
 
 ---
 
-## Cómo está armado
+## Arquitectura (diagramas)
 
-| archivo | qué resuelve |
-|---|---|
-| `src-tauri/src/cuentas.rs` | Habla con `vasak-accounts`. `Credencial` **no deriva `Debug`** — el secreto se tacha a mano. |
-| `src-tauri/src/carddav.rs` | `PROPFIND` para descubrir las libretas, `REPORT` para traer las tarjetas. |
-| `src-tauri/src/vcard/` | El parseo de las tarjetas: las líneas (`lines.rs`), el contacto (`contact.rs`), las fechas, la foto y las redes. Las tres versiones del formato. |
-| `src-tauri/src/photos.rs` | Las fotos que están afuera de la tarjeta: bajarlas una vez y guardarlas en la caché. |
-| `src/tools/address-book.ts` | Ordenar y buscar. |
-| `src/tools/contact-fields.ts` | Cómo se muestra cada campo: renglones de la dirección, fechas sin año, qué web se puede abrir. |
+> Copia y pega la plantilla que necesites, descomenta y adapta.
 
-### Por qué se trae todo de una
+### Flujo de datos
 
-Un calendario se mira por mes, así que se pide un mes. Una libreta se **busca**,
-y para buscar hay que tener todo. Una agenda de mil contactos son unos pocos
-megabytes de texto: se traen una vez al abrir y se busca en memoria, que es
-instantáneo y no le pega al servidor con cada tecla.
+```mermaid
+<!--
+graph TD
+    A[Entrada: Teclado / Ratón / D-Bus / Sistema] --> B[Procesamiento: Core Rust + Tauri Commands]
+    B --> C[Salida: UI actualizada / Acciones del sistema]
+    style A fill:#e1f5fe
+    style C fill:#e8f5e9
+-->
+```
 
-### Por qué el parseo de vCard tiene tantos tests
+### Componentes internos
 
-Porque conviven tres versiones del formato y las diferencias muerden:
+```mermaid
+<!--
+flowchart LR
+    subgraph App[Vasak contacts]
+        UI[Frontend Vue 3 + vue-libvasak]
+        Core[Core Rust: lógica principal]
+        IPC[Tauri Commands / Eventos]
+        System[Systemd / D-Bus / PipeWire / Wayland]
+    end
+    UI --> IPC
+    IPC --> Core
+    Core --> DBus[(D-Bus / zbus)]
+    Core --> System
+    style UI fill:#f3e5f5
+    style Core fill:#e3f2fd
+    style DBus fill:#fff3e0
+    style System fill:#fce4ec
+-->
+```
 
-- En **2.1** los parámetros van sueltos (`TEL;HOME:`) y el texto puede venir en
-  `quoted-printable`. La escriben los teléfonos viejos y los exportadores de
-  agendas de hace veinte años — que es justo lo que la gente tiene guardado. Sin
-  leerla, media agenda en español se ve con signos de igual en el medio de los
-  nombres.
-- En **3.0** los parámetros llevan nombre (`TEL;TYPE=HOME:`).
-- En **4.0** las direcciones llevan `mailto:` adelante. Dejarlo haría que el
-  botón de escribir abriera «mailto:mailto:…».
+### Integración en el sistema VasakOS
 
-Y porque una tarjeta **la escribió cualquiera**: puede haber llegado adjunta a un
-correo o importada de un teléfono. Una rota no puede impedir ver las otras
-trescientas.
+```mermaid
+<!--
+C4Context
+    title Vasak contacts en VasakOS
+    Person(usuario, "Usuario", "Persona que usa el sistema")
+    System_Boundary(c1, "VasakOS") {
+        System(app, "Vasak contacts", "")
+        System_Ext(settings, "vasak-settings", "Configuración central")
+        System_Ext(keyring, "vasak-keyring", "Secrets y claves")
+        System_Ext(accounts, "vasak-accounts", "Cuentas e identidad")
+        System_Ext(permissions, "vasak-permissions", "Permisos y portales")
+    }
+    System_Ext(systemd, "systemd", "Gestión de servicios")
+    System_Ext(dbus, "D-Bus", "Bus de mensajes del sistema")
+    System_Ext(wayland, "Wayland / Wayfire", "Compositor")
+    System_Ext(pipewire, "PipeWire", "Multimedia")
+    Rel(usuario, app, "Usa")
+    Rel(app, settings, "Lee/escribe config")
+    Rel(app, keyring, "Guarda/lee secrets")
+    Rel(app, accounts, "Identidad de cuenta")
+    Rel(app, permissions, "Solicita permisos")
+    Rel(app, systemd, "Activación / sockets")
+    Rel(app, dbus, "Expone / consume interfaces")
+    Rel(app, wayland, "Superficies / protocolos")
+    Rel(app, pipewire, "Streams de audio/video")
+-->
+```
 
-### Ordenar y buscar, que es lo que se equivoca callado
+---
 
-**El orden lo pone la ventana con `Intl.Collator`**, no el programa comparando
-cadenas. Comparar por código de carácter manda «Álvarez» después de «Zaparte»,
-porque la Á está por encima de cualquier letra ASCII: en español eso desordena
-media agenda, y se ve prolijo.
+## Instalación
 
-**La búsqueda ignora los acentos.** Nadie los escribe en un buscador, ni siquiera
-quien los escribe bien en todo lo demás, y una búsqueda que no los ignora
-simplemente dice que no hay nadie. Los teléfonos se buscan sin los separadores,
-porque nadie pone el guión en el mismo lugar.
+### Arch Linux (repo oficial)
+
+```bash
+pacman -S vasak-vasak-contacts
+```
+
+### Debian / Ubuntu (.deb)
+
+```bash
+wget https://github.com/Vasak-OS/vasak-contacts/releases/download/v{{VERSION}}/vasak-vasak-contacts_{{VERSION}}_amd64.deb
+sudo apt install ./vasak-vasak-contacts_{{VERSION}}_amd64.deb
+```
+
+### Desde fuente
+
+```bash
+git clone https://github.com/Vasak-OS/vasak-contacts.git
+cd vasak-contacts
+
+# Desarrollo (recarga en caliente frontend + backend)
+bun run dev
+
+# Build producción
+bun run build
+
+# Solo frontend
+bun run build:frontend
+
+# Solo backend Rust
+cargo build --release --locked
+```
+
+### Flatpak / AppImage
+
+> *Placeholder: añadir cuando exista paquete Flatpak o AppImage oficial.*
+
+---
+
+## Uso rápido
+
+```bash
+# Se lanza automáticamente (systemd --user) o manualmente:
+vasak-contacts
+```
+
+### Atajos / flags principales
+
+| Acción | Comando / Tecla |
+|--------|-----------------|
+| Acción principal | `vasak-contacts` |
+| Configuración | `vasak-contacts --config` |
+| Ayuda | `vasak-contacts --help` |
+
+> **Captura:** `assets/demo.gif` *(placeholder — sustituir por GIF real)*
+
+---
+
+## Configuración
+
+### Archivo de configuración
+
+```
+~/.config/vasak/vasak-contacts.toml
+```
+
+### Variables de entorno
+
+| Variable | Descripción | Por defecto |
+|----------|-------------|-------------|
+| `VASAK_DEBUG` | Activa logs de depuración en consola | `false` |
+| `VASAK_PROFILE` | Perfil de rendimiento: `balanced`, `performance`, `power-save` | `balanced` |
+
+### Integración con `tauri-plugin-config-manager`
+
+- Esquemas de color: respeta `--ui-primary`, `--ui-surface`, `--ui-focus`, `--ui-on-surface`, `--ui-border`
+- Tema de iconos: usa el tema del sistema (`vasakos-icon-theme`) vía `vicon` lookup
+- Radio de bordes: variable CSS `--ui-radius` del esquema activo (por defecto 12px)
+- Fuentes: `--ui-font-family`, `--ui-font-size-base` desde el esquema
 
 ---
 
 ## Desarrollo
 
+### Requisitos
+
+- **Rust:** `rustup` toolchain estable (`rust-toolchain.toml` fija la versión)
+- **Node / bun:** `bun` ≥ 1.1 (nunca npm/yarn/pnpm para apps Tauri)
+- **Sistema:** `pkg-config`, `libgtk-3-dev`, `libwebkit2gtk-4.1-dev`, `libssl-dev`
+- *`libgtk-layer-shell-dev`, `wayland-protocols`, `wayfire-dev` para Wayland*
+
+### Dependencias de desarrollo
+
+#### Sistema (paquetes Arch / Debian / Fedora)
+
+`base-devel`, `pkgconf`, `libssl-dev`, `libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `libayatana-appindicator3-dev`, `librsvg2-dev`, `gstreamer1.0-plugins-base`, `gstreamer1.0-plugins-good`, `libpipewire-0.3-dev`, `libwireplumber-0.5-dev`, `libdbus-1-dev`, `libudev-dev`, `libxkbcommon-dev`, `libwayland-dev`, `meson`, `ninja`, `clang`, `lld`
+
+#### Rust
+
+`rustup` → `stable` + `rustfmt` + `clippy`
+
+#### Node
+
+**Solo `bun`** (nunca npm/yarn/pnpm para apps Tauri). `bun --version` ≥ 1.1
+
+#### Herramientas CLI
+
+`just` (command runner), `cargo-binstall` (opcional), `cargo-llvm-cov` (para cobertura)
+
+### Correr la app en desarrollo
+
 ```bash
-bun install
-bun test                                          # el frontend
-cargo test --manifest-path src-tauri/Cargo.toml   # el backend
-bun run lint
-bunx --bun tauri dev
+# Frontend (Vite dev server + Tauri dev)
+bun run tauri dev
+
+# Solo frontend (Vite)
+bun run dev
+
+# Solo backend (cargo watch)
+cargo watch -x "run --bin vasak-contacts"
 ```
 
-Para probar la ventana de verdad hace falta `--features custom-protocol`, o el
-webview abre vacío:
+### Compilar / Build de release
 
 ```bash
-bunx --bun tauri build --debug --features custom-protocol
+# Build completo (frontend + backend + bundle)
+bun run tauri build
+
+# Solo frontend (para testear bundle después)
+bun run build
+
+# Solo backend Rust (binario optimizado)
+cargo build --release --locked
+
+# Paquetes nativos
+# Arch: makepkg -sf en PKGBUILDS/vasak-contacts/
+# Debian: cargo deb --no-build --target-dir src-tauri/target/release/debian
 ```
 
-Y hace falta `vasak-accounts` corriendo con al menos una cuenta que tenga
-libreta. Sin eso la aplicación abre igual y lo dice.
+### Targets principales
+
+```bash
+# Desarrollo (Tauri dev server + hot reload)
+bun run dev
+
+# Build producción
+bun run build
+
+# Solo frontend
+bun run build:frontend
+
+# Solo backend Rust
+cargo build --release --locked
+
+# Lint + tipos (pre-commit / CI)
+bunx --bun biome check .
+bunx vue-tsc --noEmit
+cargo fmt --check
+```
+
+### Pruebas
+
+```bash
+# Suite completa JS (Vitest via bun:test)
+bun test
+
+# Suite completa Rust (crates en pruebas_rust del CI)
+cargo test -p vasak-contacts-core -p vasak-contacts-ui --locked
+
+# Integración (requiere Wayfire corriendo)
+cargo test -p vasak-contacts-integration --locked -- --ignored
+```
+
+### Convención de commits
+
+[Conventional Commits](https://www.conventionalcommits.org/es/v1.0.0/):
+
+```
+<tipo>(<ámbito>): <descripción corta>
+
+[cuerpo opcional]
+
+[pie opcional: Closes #N]
+```
+
+Tipos habituales: `feat`, `fix`, `bugfix`, `docs`, `ci`, `chore`, `security`, `refactor`, `perf`, `test`.
+
+### Cómo abrir PR
+
+1. Rama desde `origin/main`:
+   ```bash
+   git worktree add -b feat/tema ~/wt/vasak-contacts-tema origin/main
+   ```
+2. Prefijos de rama: `fix/`, `feat/`, `bugfix/`, `docs/`, `ci/`, `chore/`, `security/`
+3. Escribe el fix → **`qa` escribe las pruebas** (fallan sin el fix) → suite verde → abre PR
+4. Al abrir PR, **cuatro cosas obligatorias**:
+   - Asignado a `JoaquinDecima`
+   - Etiqueta `enhancement` o `bug` (+ `ci` / `dependencies` si aplica)
+   - Añadido al proyecto «VasakOS Roadmap»
+   - Status **In Progress**
+
+---
+
+## Arquitectura (texto)
+
+### Crates / módulos principales
+
+| `vasak-contacts-core` | Lógica compartida: estado, D-Bus, IPC |
+| `vasak-contacts-ui` | Frontend Vue 3 + componentes vue-libvasak |
+| `vasak-contacts-tauri` | Puente Tauri: commands, eventos, WebView |
+
+### Interfaces D-Bus / zbus expuestas
+
+| `org.vasak.Vasak-contacts` | `GetState()`, `StateChanged(dict)`, `SetConfig(dict)` | Estado y control principal |
+| `org.vasak.Vasak-contacts.Panel` | `SetPosition(string)`, `SetAutohide(bool)`, `Height(u32)` | Configuración panel en runtime |
+
+### Puntos de extensión
+
+- **Plugins:** Sistema de plugins modular
+- **Hooks:** Hooks de ciclo de vida
+- **API pública Rust:** API pública del crate principal
+
+### Features / Cargo features
+
+| Feature | Descripción | Default |
+|---------|-------------|---------|
+| `system-tray` | Bandeja del sistema + menú contextual | ✓ |
+| `notifications` | Integración libnotify / freedesktop | ✓ |
+| `updater` | Auto-actualización (tauri-plugin-updater) | |
+| `devtools` | DevTools en release (solo debug) | |
+| `experimental-wayland` | Protocolo Wayland inestable | |
+
+Y para apps Tauri+Vue: features del `tauri.conf.json` → `bundle` / `plugins` / `allowlist` (capabilities).
+
+---
+
+## Pruebas y calidad
+
+- **Cobertura objetivo:** ≥ 80 % del código nuevo (SonarCloud Quality Gate)
+- **Informes:** GitHub Actions → pestaña *SonarCloud Code Analysis* → enlace a SonarCloud
+- **Añadir pruebas:** ver `AGENTS.md` sección 9 (mapa de repos y comandos de prueba)
+- **Regla:** toda corrección lleva prueba escrita por `qa` que falla sin el fix
+
+---
+
+## Contribuir
+
+- **Guía:** [.github/CONTRIBUTING.md](https://github.com/Vasak-OS/.github/blob/main/CONTRIBUTING.md)
+- **Plantillas de issue:** [.github/ISSUE_TEMPLATE/](https://github.com/Vasak-OS/.github/tree/main/ISSUE_TEMPLATE)
+- **Código de conducta:** [CODE_OF_CONDUCT.md](https://github.com/Vasak-OS/.github/blob/main/CODE_OF_CONDUCT.md)
+
+---
+
+## Donadores / Sponsors
+
+[![Sponsors](https://img.shields.io/github/sponsors/Vasak-OS?style=flat&label=Sponsors)](https://github.com/sponsors/Vasak-OS)
+
+> **Backers:** *Actualizado automáticamente en CI desde GitHub Sponsors / OpenCollective / Polar.*
+
+[💖 Donar al proyecto](https://github.com/sponsors/Vasak-OS)
+
+---
+
+## Licencia
+
+`GPL-3.0` — Copyright © 2026 **Vasak-OS Contributors**
+
+[Ver licencia completa](LICENSE)
