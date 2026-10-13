@@ -40,6 +40,7 @@ pub fn run() {
             comandos::listar_cuentas,
             comandos::contactos_de_la_cuenta,
             comandos::request_sync,
+            comandos::sync_status,
             photos::contact_photo,
         ])
         .setup(|app| {

@@ -97,8 +97,14 @@ pub(crate) fn denied_by_store(error: &str) -> bool {
 
 /// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
 #[tauri::command]
-pub async fn request_sync(account_ids: Vec<String>) {
+pub async fn request_sync(account_ids: Vec<String>) -> Vec<crate::store::SyncRequestFailure> {
     crate::store::request_sync(&account_ids).await
+}
+
+/// El estado de la sincronización de los contactos de cada cuenta.
+#[tauri::command]
+pub async fn sync_status() -> Result<Vec<crate::store::AccountSyncStatus>, String> {
+    crate::store::sync_status().await
 }
 
 #[cfg(test)]
