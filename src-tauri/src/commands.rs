@@ -43,8 +43,12 @@ pub async fn listar_cuentas() -> Result<Vec<CuentaConLibreta>, String> {
 /// la red. Sólo si el almacén todavía no tiene libretas de esa cuenta —o no se
 /// lo pudo leer— se le pregunta al servidor como antes.
 #[tauri::command]
-pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuenta, String> {
-    match crate::store::read_contacts(&account_id).await {
+pub async fn contactos_de_la_cuenta(
+    app: tauri::AppHandle,
+    account_id: String,
+) -> Result<LecturaDeCuenta, String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    match crate::store::read_contacts(&app.store(), &account_id).await {
         Ok(Some(lectura)) => return Ok(lectura),
         Ok(None) => {}
         // Si la persona le dijo que no al almacén, no se le vuelve a preguntar
@@ -93,18 +97,6 @@ pub async fn contactos_de_la_cuenta(account_id: String) -> Result<LecturaDeCuent
 /// servidor: eso pediría un permiso más fuerte que el que acaba de negar.
 pub(crate) fn denied_by_store(error: &str) -> bool {
     error.contains("org.freedesktop.DBus.Error.AccessDenied")
-}
-
-/// El botón «Actualizar»: pide al sincronizador que traiga ya lo nuevo.
-#[tauri::command]
-pub async fn request_sync(account_ids: Vec<String>) -> Vec<crate::store::SyncRequestFailure> {
-    crate::store::request_sync(&account_ids).await
-}
-
-/// El estado de la sincronización de los contactos de cada cuenta.
-#[tauri::command]
-pub async fn sync_status() -> Result<Vec<crate::store::AccountSyncStatus>, String> {
-    crate::store::sync_status().await
 }
 
 #[cfg(test)]

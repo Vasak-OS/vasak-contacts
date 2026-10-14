@@ -1,5 +1,13 @@
 import { invoke } from '@tauri-apps/api/core';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type { UnlistenFn } from '@tauri-apps/api/event';
+import {
+	type AccountSyncStatus,
+	onStoreChanged,
+	onSyncStatus,
+	requestSync,
+	type SyncRequestFailure,
+	syncStatus,
+} from '@vasakgroup/plugin-vsk-store';
 import { computed, onScopeDispose, ref } from 'vue';
 import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
 import {
@@ -11,7 +19,6 @@ import {
 	loadHiddenBooks,
 	saveHiddenBooks,
 } from '@/tools/library-filter';
-import type { AccountSyncStatus, SyncRequestFailure } from '@/tools/sync-status';
 
 /** Una cuenta conectada que tiene libretas. */
 export interface Cuenta {
@@ -31,12 +38,6 @@ export interface Libreta {
 	url: string;
 	nombre: string;
 }
-
-/** El aviso del programa de que cambió lo guardado de los contactos. */
-const STORE_CHANGED_EVENT = 'contacts-changed';
-
-/** El aviso del programa de que cambió el estado de la sincronización. */
-const SYNC_STATUS_EVENT = 'contacts-sync-status';
 
 interface LecturaDeCuenta {
 	libretas: Libreta[];
@@ -227,8 +228,7 @@ export function useAgenda(locale: () => string) {
 	 */
 	async function loadSyncStatus() {
 		try {
-			const statuses = await invoke<AccountSyncStatus[]>('sync_status');
-			syncStatuses.value = Array.isArray(statuses) ? statuses : [];
+			syncStatuses.value = await syncStatus('contacts');
 		} catch (e) {
 			console.error('no se pudo leer el estado de la sincronización', e);
 		}
@@ -237,15 +237,14 @@ export function useAgenda(locale: () => string) {
 	/**
 	 * El botón «Actualizar»: le pide al sincronizador que traiga ya lo nuevo de
 	 * cada cuenta, y relee lo que hay mientras tanto. Lo que llegue después se
-	 * avisa con [`STORE_CHANGED_EVENT`].
+	 * avisa con el aviso de cambios del almacén.
 	 */
 	async function refresh() {
 		// Las que hay que reconectar no: el sincronizador no puede con ellas
 		// hasta que la persona lo haga desde Configuración.
 		const accountIds = cuentas.value.filter((c) => !c.necesita_reconectarse).map((c) => c.id);
 		try {
-			const failures = await invoke<SyncRequestFailure[]>('request_sync', { accountIds });
-			refreshFailures.value = Array.isArray(failures) ? failures : [];
+			refreshFailures.value = await requestSync(accountIds);
 		} catch (e) {
 			console.error('no se pudo pedir una vuelta al sincronizador', e);
 			refreshFailures.value = accountIds.map((account_id) => ({
@@ -260,7 +259,7 @@ export function useAgenda(locale: () => string) {
 	// Sin preguntar a intervalos.
 	let dejarDeEscuchar: UnlistenFn | null = null;
 	let descartado = false;
-	listen(STORE_CHANGED_EVENT, () => {
+	onStoreChanged(() => {
 		void cargar();
 	})
 		.then((cancelar) => {
@@ -279,7 +278,7 @@ export function useAgenda(locale: () => string) {
 	// momento» deja de valer en cuanto hay una vuelta en marcha.
 	let stopWatchingStatus: UnlistenFn | null = null;
 	void loadSyncStatus();
-	listen(SYNC_STATUS_EVENT, () => {
+	onSyncStatus(() => {
 		refreshFailures.value = refreshFailures.value.filter((f) => f.reason !== 'too_soon');
 		void loadSyncStatus();
 	})

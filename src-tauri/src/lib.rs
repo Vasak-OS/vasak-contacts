@@ -10,6 +10,8 @@ mod dav;
 mod locales;
 mod photos;
 mod store;
+#[cfg(test)]
+mod test_bus;
 mod vcard;
 mod ventana;
 
@@ -36,16 +38,16 @@ pub fn run() {
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_shell::init())
+        // El almacén del sistema: comprueba al sincronizador, atiende
+        // «Actualizar» y el estado, y avisa de lo nuevo de los contactos.
+        .plugin(tauri_plugin_vsk_store::init(&["contacts"]))
         .invoke_handler(tauri::generate_handler![
             commands::listar_cuentas,
             commands::contactos_de_la_cuenta,
-            commands::request_sync,
-            commands::sync_status,
             photos::contact_photo,
         ])
         .setup(|app| {
             // Lo nuevo que trae el sincronizador, para que la agenda se relea sola.
-            store::watch(app.handle().clone());
             // La ventana nace oculta y la muestra el frontend cuando ya tiene los
             // textos y el tema. Esto la muestra igual si el frontend nunca llega:
             // ver `ventana.rs`.

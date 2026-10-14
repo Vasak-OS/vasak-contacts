@@ -18,6 +18,7 @@
     "config-manager:default",
     "vsk-contextual-menu:default",
     "vsk-journal:default",
+    "vsk-store:default",
     "i18n:allow-load-translations",
     "i18n:allow-get-available-locales",
     "i18n:allow-get-locale",
