@@ -142,6 +142,10 @@ pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::
             // La libreta no sale de la tarjeta sino de dónde estaba: se la pone
             // acá, para que la ventana pueda filtrar por libreta (#4).
             let address_book_id = t.address_book_id.clone();
+            // El número local del recurso, para editarlo o borrarlo. Es uno por
+            // recurso: sólo la primera tarjeta lo lleva, porque una sub-tarjeta
+            // de un recurso con varias no tiene fila propia que tocar.
+            let store_id = t.id.clone();
             vcard::split_cards(&t.vcard)
                 .into_iter()
                 .enumerate()
@@ -151,8 +155,14 @@ pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::
                     } else {
                         format!("{base}#{i}")
                     };
+                    let store_id = if i == 0 {
+                        store_id.clone()
+                    } else {
+                        String::new()
+                    };
                     vcard::contact_from(&card, &id).map(|mut contact| {
                         contact.address_book_id = address_book_id.clone();
+                        contact.store_id = store_id;
                         contact
                     })
                 })
@@ -217,6 +227,70 @@ where
         .fallos
         .push("hay más contactos de los que se pueden mostrar".into());
     Ok(Some(lectura))
+}
+
+/// La respuesta de `PutContact`: el número local del contacto que creó o editó.
+#[derive(Debug, Clone, Deserialize)]
+struct PutContactReply {
+    contact_id: serde_json::Value,
+}
+
+/// Crea o edita un contacto en el almacén, por el cliente comprobado del plugin.
+///
+/// Es la escritura equivalente a [`read_contacts`]: la misma interfaz
+/// (`AccountsStore`), el mismo cliente que comprueba al sincronizador y el mismo
+/// mapeo de errores que las lecturas —el nombre del error de D-Bus adentro del
+/// mensaje, que es lo que mira [`crate::commands::denied_by_store`]—.
+///
+/// `payload` es el parche JSON ya armado por la ventana (ausente no toca, `null`
+/// saca, un valor fija). `if_match` vacío **crea** (el `payload` no lleva `id`);
+/// con un ETag **edita** el contacto cuyo `id` —el número local— va en el
+/// `payload`. Devuelve el número local del contacto, para que la ventana pueda
+/// borrarlo o seguir editándolo sin releer.
+pub async fn put_contact(
+    store: &StoreClient,
+    account_id: &str,
+    address_book_id: &str,
+    payload: &str,
+    if_match: &str,
+) -> Result<String, String> {
+    let json = call(
+        store,
+        "PutContact",
+        &(account_id, address_book_id, payload, if_match),
+    )
+    .await?;
+    parse_contact_id(&json)
+}
+
+/// El número local de la respuesta de `PutContact`, como texto. El almacén lo
+/// manda como número; una respuesta sin `contact_id` o con una forma que no se
+/// entiende es un error, no un contacto a medias.
+fn parse_contact_id(json: &str) -> Result<String, String> {
+    let reply: PutContactReply =
+        serde_json::from_str(json).map_err(|e| format!("respuesta inválida de PutContact: {e}"))?;
+    match reply.contact_id {
+        serde_json::Value::Number(n) => Ok(n.to_string()),
+        serde_json::Value::String(s) if !s.is_empty() => Ok(s),
+        other => Err(format!(
+            "PutContact devolvió un contact_id que no sirve: {other}"
+        )),
+    }
+}
+
+/// Borra un contacto del almacén, por el cliente comprobado del plugin.
+///
+/// `contact_id` es el número local (el `store_id` del contacto). `if_match`
+/// vacío borra sin precondición; con un ETag, sólo si la tarjeta no cambió desde
+/// él. Mapea el error como las lecturas.
+pub async fn delete_contact(
+    store: &StoreClient,
+    account_id: &str,
+    contact_id: &str,
+    if_match: &str,
+) -> Result<(), String> {
+    call(store, "DeleteContact", &(account_id, contact_id, if_match)).await?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -367,6 +441,7 @@ mod tests {
         let mut expected =
             vcard::contact_from(raw, &identity("cuenta", &stored)).expect("la tarjeta se lee");
         expected.address_book_id = "1".into();
+        expected.store_id = "7".into();
         assert_eq!(ana, &expected);
         // La libreta de la tarjeta viaja con el contacto: es lo que deja filtrar
         // por libreta (#4).
@@ -463,6 +538,27 @@ mod tests {
         assert!(contacts.iter().all(|c| c.address_book_id == "compartida"));
     }
 
+    /// Cada contacto sale con el número local de su tarjeta, que es lo que deja
+    /// editarlo o borrarlo (`PutContact`/`DeleteContact`). Es uno por recurso:
+    /// de un recurso con varias tarjetas sólo la primera lo lleva, porque las
+    /// demás no tienen fila propia que tocar.
+    #[test]
+    fn cada_contacto_sale_con_el_numero_local_de_su_tarjeta() {
+        let uno = contacts_from("a1", vec![card("42", "https://x/a/1.vcf", &named(1))]);
+        assert_eq!(uno.len(), 1);
+        assert_eq!(uno[0].store_id, "42");
+
+        let two = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nEND:VCARD\r\n\
+                   BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bruno\r\nEND:VCARD\r\n";
+        let dos = contacts_from("a1", vec![card("9", "https://x/todos.vcf", two)]);
+        assert_eq!(dos.len(), 2);
+        assert_eq!(
+            dos[0].store_id, "9",
+            "la primera lleva el número del recurso"
+        );
+        assert_eq!(dos[1].store_id, "", "la segunda no tiene fila propia");
+    }
+
     // ── Las formas del almacén ─────────────────────────────────────────────
 
     /// `ListAddressBooks` contesta `[{id, display_name, contacts}]`: se lee,
@@ -511,6 +607,7 @@ mod tests {
         assert_eq!(lectura.contactos[0].url, "store:cuenta:https://x/a/ana.vcf");
         let mut expected = vcard::contact_from(raw, "store:cuenta:https://x/a/ana.vcf").unwrap();
         expected.address_book_id = "1".into();
+        expected.store_id = "7".into();
         assert_eq!(lectura.contactos[0], expected);
         assert_eq!(lectura.libretas[0].nombre, "Personal");
         assert!(lectura.fallos.is_empty());
@@ -751,6 +848,40 @@ mod tests {
                 page_json(&[2], None)
             }
         }
+
+        fn put_contact(
+            &self,
+            account_id: String,
+            address_book_id: String,
+            payload: String,
+            if_match: String,
+        ) -> zbus::fdo::Result<String> {
+            self.calls.push(format!(
+                "PutContact {account_id} {address_book_id} {payload} {if_match:?}"
+            ));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            // Un número al crear, el que vino al editar: alcanza para que la
+            // prueba distinga las dos y lea el `contact_id` de vuelta.
+            let id = if if_match.is_empty() { 101 } else { 7 };
+            Ok(serde_json::json!({ "contact_id": id }).to_string())
+        }
+
+        fn delete_contact(
+            &self,
+            account_id: String,
+            contact_id: String,
+            if_match: String,
+        ) -> zbus::fdo::Result<String> {
+            self.calls.push(format!(
+                "DeleteContact {account_id} {contact_id} {if_match:?}"
+            ));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            Ok("{}".to_string())
+        }
     }
 
     /// Los contactos salen del sincronizador comprobado, de la cuenta pedida,
@@ -811,6 +942,141 @@ mod tests {
         let _impostor = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
 
         let error = read_contacts(&test_bus::client(false), "nube")
+            .await
+            .unwrap_err();
+
+        assert!(calls.taken().is_empty(), "{:?}", calls.taken());
+        assert!(!crate::commands::denied_by_store(&error), "{error}");
+    }
+
+    // ── La escritura ────────────────────────────────────────────────────────
+
+    /// El almacén contesta `{"contact_id": <número>}`: se lee como texto, que es
+    /// con lo que la ventana después borra o edita.
+    #[test]
+    fn el_contact_id_de_put_contact_se_lee_como_texto() {
+        assert_eq!(parse_contact_id(r#"{"contact_id": 101}"#).unwrap(), "101");
+        // Un número grande no se redondea ni pierde dígitos al leerse.
+        assert_eq!(
+            parse_contact_id(r#"{"contact_id": 9007199254740993}"#).unwrap(),
+            "9007199254740993"
+        );
+        // Si alguna vez llega como texto, también sirve.
+        assert_eq!(parse_contact_id(r#"{"contact_id": "77"}"#).unwrap(), "77");
+    }
+
+    /// Una respuesta sin `contact_id`, con uno vacío o que no es json es un
+    /// error: un contacto a medias que parezca creado es peor que avisar.
+    #[test]
+    fn una_respuesta_sin_contact_id_util_es_un_error() {
+        for malo in [
+            "no es json",
+            "{}",
+            r#"{"contact_id": null}"#,
+            r#"{"contact_id": ""}"#,
+            r#"{"contact_id": []}"#,
+        ] {
+            assert!(
+                parse_contact_id(malo).is_err(),
+                "{malo:?} se tomó por bueno"
+            );
+        }
+    }
+
+    /// Crear va con `if_match` vacío y el parche sin `id`; el número local sale
+    /// de la respuesta. Todo por el cliente comprobado del plugin, como las
+    /// lecturas.
+    #[tokio::test]
+    async fn crear_un_contacto_va_por_el_cliente_del_plugin() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let payload = r#"{"full_name":"Ana"}"#;
+        let id = put_contact(&test_bus::client(true), "nube", "1", payload, "")
+            .await
+            .unwrap();
+
+        assert_eq!(id, "101");
+        assert_eq!(calls.taken(), [format!("PutContact nube 1 {payload} \"\"")]);
+    }
+
+    /// Editar va con el ETag en `if_match` y el `id` dentro del parche.
+    #[tokio::test]
+    async fn editar_un_contacto_manda_el_etag_y_el_parche() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let payload = r#"{"id":7,"full_name":"Ana María"}"#;
+        let id = put_contact(&test_bus::client(true), "nube", "1", payload, "etag-1")
+            .await
+            .unwrap();
+
+        assert_eq!(id, "7");
+        assert_eq!(
+            calls.taken(),
+            [format!("PutContact nube 1 {payload} \"etag-1\"")]
+        );
+    }
+
+    /// Borrar manda el número local y el `if_match` tal cual.
+    #[tokio::test]
+    async fn borrar_un_contacto_manda_el_numero_local() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        delete_contact(&test_bus::client(true), "nube", "42", "")
+            .await
+            .unwrap();
+
+        assert_eq!(calls.taken(), [r#"DeleteContact nube 42 """#.to_string()]);
+    }
+
+    /// Un «no» de la persona a una escritura llega como un «no», con el nombre
+    /// del error de D-Bus adentro —igual que en las lecturas—, para que la
+    /// ventana no lo confunda con el almacén caído.
+    #[tokio::test]
+    async fn un_no_del_almacen_a_una_escritura_se_lee_como_un_no() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore {
+            deny: true,
+            ..Default::default()
+        };
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = put_contact(&test_bus::client(true), "nube", "1", "{}", "")
+            .await
+            .unwrap_err();
+        assert!(error.starts_with("PutContact: "), "{error}");
+        assert!(crate::commands::denied_by_store(&error), "{error}");
+
+        let error = delete_contact(&test_bus::client(true), "nube", "42", "")
+            .await
+            .unwrap_err();
+        assert!(error.starts_with("DeleteContact: "), "{error}");
+        assert!(crate::commands::denied_by_store(&error), "{error}");
+    }
+
+    /// A un impostor no se le escribe nada: su rechazo no se lee como un «no» de
+    /// la persona, como en las lecturas.
+    #[tokio::test]
+    async fn a_un_impostor_no_se_le_escribe() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _impostor = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = put_contact(&test_bus::client(false), "nube", "1", "{}", "")
             .await
             .unwrap_err();
 

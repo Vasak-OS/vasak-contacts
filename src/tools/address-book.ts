@@ -81,6 +81,20 @@ export interface Contact {
 	 */
 	address_book_id: string;
 	/**
+	 * El número local del contacto en el almacén, para editarlo o borrarlo. Lo
+	 * pone el programa (`store::contacts_from`) con el id de la tarjeta; vacío
+	 * cuando la lectura va al servidor o es una sub-tarjeta de un recurso con
+	 * varias. Es la fila de la base, no el `uid` de la vCard.
+	 */
+	store_id: string;
+	/**
+	 * El ETag de la tarjeta: la precondición para editarla sin pisar un cambio
+	 * de otro lado. Hoy el almacén no lo entrega, así que viaja vacío y la
+	 * ventana deja «editar» pendiente (ver `canEdit`); lo llena el PR que suma
+	 * `sync_state` a los DTOs.
+	 */
+	etag: string;
+	/**
 	 * De qué cuenta es el contacto. **Lo pone la ventana** al juntar lo de cada
 	 * cuenta (`use-agenda.ts`), no el programa: dos cuentas pueden tener una
 	 * libreta con el mismo id, y sin la cuenta no se distinguen al filtrar.
@@ -129,6 +143,8 @@ export function emptyContact(overrides: Partial<Contact> = {}): Contact {
 		notes: '',
 		url: '',
 		address_book_id: '',
+		store_id: '',
+		etag: '',
 		account_id: '',
 		photo: '',
 		photo_url: '',
@@ -150,6 +166,28 @@ export function emptyContact(overrides: Partial<Contact> = {}): Contact {
 		custom_fields: [],
 		...overrides,
 	};
+}
+
+/**
+ * Si un contacto se puede borrar: hace falta su número local en el almacén. Lo
+ * que vino del servidor, o una sub-tarjeta de un recurso con varias, no lo
+ * tiene, y no hay fila que borrar.
+ */
+export function canDelete(contact: Contact): boolean {
+	return contact.store_id.trim().length > 0;
+}
+
+/**
+ * Si un contacto se puede editar: hace falta su número local **y** su ETag.
+ *
+ * Sin ETag, editar pisaría a ciegas un cambio hecho desde otro lado, así que la
+ * ventana lo deja «pendiente» hasta que el almacén entregue el ETag en los DTOs
+ * (vasak-contacts#2, punto 5). Un contacto recién creado tampoco lo tiene hasta
+ * que sincroniza, así que no se puede editar enseguida: hay que esperar la
+ * vuelta.
+ */
+export function canEdit(contact: Contact): boolean {
+	return contact.store_id.trim().length > 0 && contact.etag.trim().length > 0;
 }
 
 /**

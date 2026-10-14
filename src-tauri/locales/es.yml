@@ -42,8 +42,7 @@ contact:
   copy: Copiar
   copied: Copiado
   open: Abrir
-  # Se dice porque cambia lo que la persona puede esperar de la ventana.
-  readOnly: Esta versión muestra los contactos; editarlos viene después.
+  relations: Relaciones
   # `{0}` es el nombre del contacto.
   photoAlt: "Foto de {0}"
   photoTooLarge: La foto de esta tarjeta es demasiado grande para mostrarla.
@@ -80,6 +79,45 @@ contact:
     profile: perfil
     anniversary: aniversario
     school: escuela
+# Crear, editar y borrar un contacto (vasak-contacts#2/#3).
+form:
+  newTitle: Nuevo contacto
+  editTitle: Editar contacto
+  name: Nombre
+  namePlaceholder: Nombre y apellido
+  organization: Organización
+  addressBook: Libreta
+  emailPlaceholder: nombre@ejemplo.com
+  phonePlaceholder: Teléfono
+  relationPlaceholder: Nombre de la persona
+  addEmail: Agregar correo
+  addPhone: Agregar teléfono
+  addRelation: Agregar relación
+  remove: Quitar
+  cancel: Cancelar
+  create: Crear
+  save: Guardar
+  edit: Editar
+  # Hasta que el contacto tenga ETag no se puede editar sin arriesgar a pisar
+  # un cambio de otro lado: se muestra pendiente (punto 5).
+  editPending: "Pendiente de sincronizar: todavía no se puede editar"
+  delete: Borrar
+  deleteTitle: Borrar contacto
+  # `{0}` es el nombre del contacto.
+  deleteConfirm: "¿Borrar a {0}? No se puede deshacer."
+  denied: No diste permiso para cambiar los contactos guardados en el sistema.
+  error: No se pudo completar el cambio.
+  # Los vínculos de una relación, para el selector del formulario.
+  relations:
+    spouse: cónyuge
+    child: hijo/a
+    parent: padre/madre
+    sibling: hermano/a
+    friend: amistad
+    partner: pareja
+    assistant: asistente
+    manager: jefe/a
+    other: otro
 # Elegir qué libretas se ven y filtrar por categoría, en el panel de cuentas.
 filtros:
   libretas: Libretas

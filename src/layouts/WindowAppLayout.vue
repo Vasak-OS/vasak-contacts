@@ -37,11 +37,18 @@ defineExpose({ row });
     <template v-if="$slots.barraCentro" #centro><slot name="barraCentro" /></template>
     <template v-if="$slots.acciones" #acciones><slot name="acciones" /></template>
 
-    <!-- La fila es un contenedor con nombre (`row`): con la ventana angosta
-         va una columna por vez, y eso lo decide el ancho de la fila, no el de
-         la pantalla (ver `tools/narrow-layout.ts`). -->
-    <div ref="row" class="@container/row flex min-h-0 min-w-0 flex-1 gap-1 p-1">
-      <slot />
+    <!-- El contenido en columna: la fila de las columnas ocupa lo que hay, y
+         debajo queda lugar para un aviso al pie (`pie`) que no tapa nada. -->
+    <div class="flex min-h-0 min-w-0 flex-1 flex-col">
+      <!-- La fila es un contenedor con nombre (`row`): con la ventana angosta
+           va una columna por vez, y eso lo decide el ancho de la fila, no el de
+           la pantalla (ver `tools/narrow-layout.ts`). -->
+      <div ref="row" class="@container/row flex min-h-0 min-w-0 flex-1 gap-1 p-1">
+        <slot />
+      </div>
+      <!-- Un aviso de aplicación —un borrado que no se pudo— al pie, que no
+           empuja ni tapa las columnas. -->
+      <div v-if="$slots.pie" class="shrink-0"><slot name="pie" /></div>
     </div>
   </WindowFrame>
 </template>

@@ -1,5 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import {
+	canDelete,
+	canEdit,
 	type Contact,
 	emptyContact,
 	initialOf,
@@ -195,5 +197,31 @@ describe('searchContacts, el caso que rompió todo una vez', () => {
 		const agenda = [contact('Ana'), contact('Juan')];
 		expect(searchContacts(agenda, 'nadie')).toHaveLength(0);
 		expect(searchContacts(agenda, 'zzz')).toHaveLength(0);
+	});
+});
+
+describe('canDelete / canEdit, qué acciones deja hacer un contacto', () => {
+	test('borrar necesita el número local del almacén', () => {
+		// Sin número local no hay fila que borrar: la lectura vino del servidor
+		// o es una sub-tarjeta de un recurso con varias.
+		expect(canDelete(contact('Ana', { store_id: '42' }))).toBe(true);
+		expect(canDelete(contact('Ana', { store_id: '' }))).toBe(false);
+		expect(canDelete(contact('Ana', { store_id: '   ' }))).toBe(false);
+	});
+
+	test('editar necesita el número local Y el ETag', () => {
+		// Sin ETag, editar pisaría a ciegas un cambio de otro lado: se deja
+		// pendiente hasta que el almacén lo entregue (punto 5).
+		expect(canEdit(contact('Ana', { store_id: '42', etag: 'e-1' }))).toBe(true);
+		expect(canEdit(contact('Ana', { store_id: '42', etag: '' }))).toBe(false);
+		expect(canEdit(contact('Ana', { store_id: '', etag: 'e-1' }))).toBe(false);
+	});
+
+	test('un contacto recién leído del almacén hoy no se puede editar', () => {
+		// Hoy `ListContactCards` no trae el ETag, así que todo contacto del
+		// almacén llega con `etag` vacío: se puede borrar, no editar.
+		const delAlmacen = contact('Ana', { store_id: '7', etag: '' });
+		expect(canDelete(delAlmacen)).toBe(true);
+		expect(canEdit(delAlmacen)).toBe(false);
 	});
 });

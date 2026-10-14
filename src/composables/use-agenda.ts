@@ -253,6 +253,71 @@ export function useAgenda(locale: () => string) {
 		return null;
 	}
 
+	/**
+	 * Crea o edita un contacto en el almacén y relee.
+	 *
+	 * **Optimista + recarga** (#4): se le pide al almacén que guarde, y se
+	 * relee enseguida; lo que el almacén sincronice después llega por su aviso
+	 * de cambios (`CHANGED_EVENT`), que ya relee solo. El parche lo arma la
+	 * ventana (`tools/contact-patch.ts`): `if_match` vacío crea, con un ETag
+	 * edita. Devuelve el error crudo del comando si no se pudo —la vista lo
+	 * traduce— o `null` si salió bien.
+	 */
+	async function saveContact(args: {
+		accountId: string;
+		addressBookId: string;
+		payload: Record<string, unknown>;
+		ifMatch: string;
+	}): Promise<string | null> {
+		try {
+			await invoke<string>('save_contact', {
+				accountId: args.accountId,
+				addressBookId: args.addressBookId,
+				payload: args.payload,
+				ifMatch: args.ifMatch,
+			});
+		} catch (e) {
+			return String(e);
+		}
+		await cargar();
+		return null;
+	}
+
+	/**
+	 * Borra un contacto del almacén y relee.
+	 *
+	 * Se lo saca de la lista en el acto —optimista— para que la ventana no
+	 * espere, y se relee: si el borrado no se pudo, al releer vuelve a aparecer,
+	 * porque el almacén sigue teniéndolo. Devuelve el error crudo si no se pudo,
+	 * o `null` si salió bien.
+	 */
+	async function deleteContact(contacto: Contact): Promise<string | null> {
+		// Sin número local no hay a quién borrar: la lectura vino del servidor o
+		// es una sub-tarjeta de un recurso con varias.
+		if (!contacto.store_id) {
+			return 'no-store-id';
+		}
+		const antes = contactos.value;
+		// Optimista: se saca ya, y si estaba abierto se cierra.
+		contactos.value = contactos.value.filter((c) => c.url !== contacto.url);
+		if (elegido.value?.url === contacto.url) {
+			elegido.value = null;
+		}
+		try {
+			await invoke('delete_contact', {
+				accountId: contacto.account_id,
+				contactId: contacto.store_id,
+				ifMatch: contacto.etag,
+			});
+		} catch (e) {
+			// No se pudo: se deja lo que había hasta que la recarga diga la verdad.
+			contactos.value = antes;
+			return String(e);
+		}
+		await cargar();
+		return null;
+	}
+
 	/** El estado de la sincronización de cada cuenta, del almacén. */
 	const syncStatuses = ref<AccountSyncStatus[]>([]);
 	/** Las cuentas a las que el último «Actualizar» no les pudo pedir una vuelta. */
@@ -351,6 +416,8 @@ export function useAgenda(locale: () => string) {
 		cargar,
 		refresh,
 		pedirPermisoDeNuevo,
+		saveContact,
+		deleteContact,
 		syncStatuses,
 		refreshFailures,
 		elegir,

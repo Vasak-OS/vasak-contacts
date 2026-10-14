@@ -115,6 +115,65 @@ pub async fn contactos_de_la_cuenta(
     Ok(lectura)
 }
 
+/// Crea o edita un contacto en el almacén del sistema.
+///
+/// `payload` es el parche que arma la ventana (`src/tools/contact-patch.ts`):
+/// ausente no toca, `null` saca, un valor fija. `if_match` vacío **crea** (el
+/// parche no lleva `id`); con un ETag **edita** el contacto cuyo `id` —el número
+/// local— va en el parche. Devuelve el número local, con el que la ventana puede
+/// después borrarlo sin releer.
+///
+/// Un «no» de la persona vuelve como [`STORE_PERMISSION_DENIED`], la misma marca
+/// que la lectura, para que la ventana muestre un texto en el idioma de la
+/// sesión en vez de un error crudo del bus.
+#[tauri::command]
+pub async fn save_contact(
+    app: tauri::AppHandle,
+    account_id: String,
+    address_book_id: String,
+    payload: serde_json::Value,
+    if_match: String,
+) -> Result<String, String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    let payload = serde_json::to_string(&payload)
+        .map_err(|e| format!("no se pudo armar el contacto: {e}"))?;
+    crate::store::put_contact(
+        &app.store(),
+        &account_id,
+        &address_book_id,
+        &payload,
+        &if_match,
+    )
+    .await
+    .map_err(denied_or)
+}
+
+/// Borra un contacto del almacén del sistema. `contact_id` es el número local
+/// (el `store_id` del contacto). Un «no» vuelve como [`STORE_PERMISSION_DENIED`],
+/// como en [`save_contact`].
+#[tauri::command]
+pub async fn delete_contact(
+    app: tauri::AppHandle,
+    account_id: String,
+    contact_id: String,
+    if_match: String,
+) -> Result<(), String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    crate::store::delete_contact(&app.store(), &account_id, &contact_id, &if_match)
+        .await
+        .map_err(denied_or)
+}
+
+/// Pasa un «no» de la persona a la marca que la ventana traduce; cualquier otro
+/// error viaja como vino, para que se vea el motivo.
+fn denied_or(error: String) -> String {
+    if denied_by_store(&error) {
+        STORE_PERMISSION_DENIED.to_string()
+    } else {
+        error
+    }
+}
+
 /// Si el almacén contestó que la persona no dio permiso. Ahí no se va al
 /// servidor: eso pediría un permiso más fuerte que el que acaba de negar.
 pub(crate) fn denied_by_store(error: &str) -> bool {

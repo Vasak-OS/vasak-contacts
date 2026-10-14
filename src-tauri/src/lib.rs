@@ -45,6 +45,8 @@ pub fn run() {
             commands::listar_cuentas,
             commands::contactos_de_la_cuenta,
             commands::request_store_permission_again,
+            commands::save_contact,
+            commands::delete_contact,
             photos::contact_photo,
         ])
         .setup(|app| {
