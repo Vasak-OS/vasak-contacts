@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { ActionButton, BarSearch, ThemeIcon } from '@vasakgroup/vue-libvasak';
+import { ActionButton, BarSearch, EmptyState, ThemeIcon } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
@@ -11,6 +11,7 @@ import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import type { Contact } from '@/tools/address-book';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneClass } from '@/tools/narrow-layout';
+import { reaskNoticeKey } from '@/tools/store-permission';
 
 const { t, locale } = useI18n();
 const {
@@ -20,8 +21,10 @@ const {
 	consulta,
 	cargando,
 	avisos,
+	sinPermiso,
 	cargar,
 	refresh,
+	pedirPermisoDeNuevo,
 	elegir,
 	syncStatuses,
 	refreshFailures,
@@ -33,6 +36,29 @@ const {
 	toggleCategory,
 	clearCategories,
 } = useAgenda(() => locale.value);
+
+/**
+ * El botón de «volver a pedir el permiso»: mientras pide se desactiva —no es
+ * instantáneo y dos clics seguidos chocan con el techo de uno por minuto— y, si
+ * no se pudo ni pedir, deja debajo el motivo traducido (el techo, o un recurso
+ * ajeno). Si se pudo pedir, `pedirPermisoDeNuevo` ya releyó: o aparece la agenda,
+ * o vuelve el mismo estado porque la persona dijo que no de nuevo.
+ */
+const pidiendoPermiso = ref(false);
+const avisoPermiso = ref('');
+async function reclamarPermiso() {
+	if (pidiendoPermiso.value) {
+		return;
+	}
+	avisoPermiso.value = '';
+	pidiendoPermiso.value = true;
+	try {
+		const error = await pedirPermisoDeNuevo();
+		avisoPermiso.value = error ? t(reaskNoticeKey(error)) : '';
+	} finally {
+		pidiendoPermiso.value = false;
+	}
+}
 
 const countLabel = computed(() =>
 	interpolar(t(claveSegunCantidad('lista.cuantos', visibles.value.length)), visibles.value.length)
@@ -167,38 +193,63 @@ onMounted(cargar);
       </div>
     </template>
 
+    <!-- Sin permiso para leer el almacén, la agenda queda vacía y sin salida:
+         en vez de las columnas vacías, un estado que lo dice y el botón que
+         vuelve a abrir el diálogo. Ocupa la fila entera, así que con la ventana
+         angosta se ve igual —una sola cosa centrada— sin nada que apilar. -->
+    <div v-if="sinPermiso" class="flex min-h-0 min-w-0 flex-1 items-center justify-center">
+      <EmptyState
+        icon="dialog-password"
+        :title="t('permiso.titulo')"
+        :note="t('permiso.descripcion')">
+        <div class="flex min-w-0 flex-col items-center gap-2">
+          <ActionButton
+            variant="primary"
+            :label="t('permiso.pedir')"
+            :loading="pidiendoPermiso"
+            @click="reclamarPermiso" />
+          <!-- El motivo de que no se pudiera ni pedir —el techo, un recurso
+               ajeno—, debajo del botón y anunciado para el lector de pantalla. -->
+          <p v-if="avisoPermiso" class="max-w-prose text-body-s text-tx-muted" role="status">
+            {{ avisoPermiso }}
+          </p>
+        </div>
+      </EmptyState>
+    </div>
     <!-- Las secciones separadas por aire y no por líneas: cada una es una
          superficie redondeada, como los paneles del escritorio. -->
-    <AccountsPanel
-      :accounts="cuentas"
-      :notices="avisos"
-      :sync-statuses="syncStatuses"
-      :refresh-failures="refreshFailures"
-      :address-books="addressBooks"
-      :hidden-books="hiddenBooks"
-      :categories="categories"
-      :selected-categories="selectedCategories"
-      v-bind="{ 'data-pane': 'accounts' }"
-      :class="paneClass('accounts', pane)"
-      @forward="go('list')"
-      @toggle-book="toggleBook"
-      @toggle-category="toggleCategory"
-      @clear-categories="clearCategories" />
-    <ContactList
-      :contacts="visibles"
-      :selected="elegido"
-      :query="consulta"
-      :loading="cargando"
-      :count-label="narrow ? countLabel : ''"
-      :wrap="narrow"
-      v-bind="{ 'data-pane': 'list' }"
-      :class="paneClass('list', pane)"
-      @select="select"
-      @back="go('accounts')" />
-    <ContactDetail
-      :contact="elegido"
-      v-bind="{ 'data-pane': 'detail' }"
-      :class="paneClass('detail', pane)"
-      @back="go('list')" />
+    <template v-else>
+      <AccountsPanel
+        :accounts="cuentas"
+        :notices="avisos"
+        :sync-statuses="syncStatuses"
+        :refresh-failures="refreshFailures"
+        :address-books="addressBooks"
+        :hidden-books="hiddenBooks"
+        :categories="categories"
+        :selected-categories="selectedCategories"
+        v-bind="{ 'data-pane': 'accounts' }"
+        :class="paneClass('accounts', pane)"
+        @forward="go('list')"
+        @toggle-book="toggleBook"
+        @toggle-category="toggleCategory"
+        @clear-categories="clearCategories" />
+      <ContactList
+        :contacts="visibles"
+        :selected="elegido"
+        :query="consulta"
+        :loading="cargando"
+        :count-label="narrow ? countLabel : ''"
+        :wrap="narrow"
+        v-bind="{ 'data-pane': 'list' }"
+        :class="paneClass('list', pane)"
+        @select="select"
+        @back="go('accounts')" />
+      <ContactDetail
+        :contact="elegido"
+        v-bind="{ 'data-pane': 'detail' }"
+        :class="paneClass('detail', pane)"
+        @back="go('list')" />
+    </template>
   </WindowAppLayout>
 </template>

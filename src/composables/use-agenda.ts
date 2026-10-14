@@ -19,6 +19,7 @@ import {
 	loadHiddenBooks,
 	saveHiddenBooks,
 } from '@/tools/library-filter';
+import { isStorePermissionDenied } from '@/tools/store-permission';
 
 /** Una cuenta conectada que tiene libretas. */
 export interface Cuenta {
@@ -62,6 +63,13 @@ export function useAgenda(locale: () => string) {
 	const cargando = ref(false);
 	/** Lo que impidió leer algo, en el idioma de lo que la persona puede hacer. */
 	const avisos = ref<string[]>([]);
+	/**
+	 * Si el almacén negó el permiso para leer los contactos. El almacén es uno
+	 * solo para todas las cuentas: si lo niega, lo niega para todas y la agenda
+	 * queda vacía. Entonces la vista muestra el estado de «sin permiso» con el
+	 * botón de volver a pedirlo, en vez de un aviso técnico por cada cuenta.
+	 */
+	const sinPermiso = ref(false);
 
 	/** Las libretas de todas las cuentas, para elegir cuáles se ven. */
 	const addressBooks = ref<AddressBook[]>([]);
@@ -136,6 +144,9 @@ export function useAgenda(locale: () => string) {
 		// después de traer los datos borraría justo lo que esta carga acaba de
 		// descubrir, y el aviso no llegaría a verse nunca.
 		const nuevosAvisos: string[] = [];
+		// Si alguna cuenta chocó con el «no» del almacén. Se decide al final, para
+		// que un relee con permiso ya concedido lo apague solo.
+		let huboDenegacion = false;
 
 		try {
 			const conectadas = await invoke<Cuenta[]>('listar_cuentas');
@@ -175,6 +186,13 @@ export function useAgenda(locale: () => string) {
 					});
 					nuevosAvisos.push(...lectura.fallos);
 				} catch (e) {
+					// El «no» del almacén no es un aviso por cuenta: es el mismo
+					// permiso para todas, así que se marca una vez y la vista
+					// muestra el estado de «sin permiso» con su botón.
+					if (isStorePermissionDenied(e)) {
+						huboDenegacion = true;
+						continue;
+					}
 					// Una cuenta que falla no puede vaciar la agenda de las
 					// otras. Con el nombre adelante: «no se pudo leer» no le dice
 					// a nadie cuál de sus dos cuentas está rota.
@@ -212,9 +230,27 @@ export function useAgenda(locale: () => string) {
 		} finally {
 			if (mio === vigente) {
 				avisos.value = nuevosAvisos;
+				sinPermiso.value = huboDenegacion;
 				cargando.value = false;
 			}
 		}
+	}
+
+	/**
+	 * Vuelve a pedir el permiso del almacén y, si se pudo pedir, relee: al releer
+	 * aparece el diálogo de `vasak-permissions`. Si la persona vuelve a decir que
+	 * no, la agenda sigue en el estado de «sin permiso». Devuelve la marca del
+	 * error cuando no se pudo **ni pedir** —el techo de uno por minuto, o un
+	 * recurso ajeno—, para que la vista la traduzca; `null` cuando sí se pidió.
+	 */
+	async function pedirPermisoDeNuevo(): Promise<string | null> {
+		try {
+			await invoke('request_store_permission_again');
+		} catch (e) {
+			return String(e);
+		}
+		await cargar();
+		return null;
 	}
 
 	/** El estado de la sincronización de cada cuenta, del almacén. */
@@ -311,8 +347,10 @@ export function useAgenda(locale: () => string) {
 		consulta,
 		cargando,
 		avisos,
+		sinPermiso,
 		cargar,
 		refresh,
+		pedirPermisoDeNuevo,
 		syncStatuses,
 		refreshFailures,
 		elegir,
