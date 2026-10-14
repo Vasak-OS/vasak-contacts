@@ -1,9 +1,16 @@
 <script lang="ts" setup>
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
-import { ActionButton, BarSearch, EmptyState, ThemeIcon } from '@vasakgroup/vue-libvasak';
+import {
+	ActionButton,
+	AlertMessage,
+	BarSearch,
+	EmptyState,
+	ThemeIcon,
+} from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
+import ContactForm from '@/components/contacts/ContactForm.vue';
 import ContactList from '@/components/contacts/ContactList.vue';
 import { useAgenda } from '@/composables/use-agenda';
 import { useNarrowRow } from '@/composables/use-narrow-row';
@@ -11,7 +18,7 @@ import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import type { Contact } from '@/tools/address-book';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneClass } from '@/tools/narrow-layout';
-import { reaskNoticeKey } from '@/tools/store-permission';
+import { isStorePermissionDenied, reaskNoticeKey } from '@/tools/store-permission';
 
 const { t, locale } = useI18n();
 const {
@@ -25,6 +32,8 @@ const {
 	cargar,
 	refresh,
 	pedirPermisoDeNuevo,
+	saveContact,
+	deleteContact,
 	elegir,
 	syncStatuses,
 	refreshFailures,
@@ -36,6 +45,66 @@ const {
 	toggleCategory,
 	clearCategories,
 } = useAgenda(() => locale.value);
+
+/**
+ * El formulario de crear o editar. `editing` es el contacto que se edita, o
+ * `null` para crear uno nuevo. `saving` desactiva los botones mientras el
+ * almacén guarda, y `formError` muestra en el formulario por qué no se pudo.
+ */
+const formOpen = ref(false);
+const editing = ref<Contact | null>(null);
+const saving = ref(false);
+const formError = ref('');
+
+/** El error de borrar, cuando no se pudo; se muestra como un aviso y se cierra. */
+const actionNotice = ref('');
+
+/** Traduce el error de un comando de escritura para mostrarlo. */
+function writeErrorText(error: string): string {
+	return isStorePermissionDenied(error) ? t('form.denied') : t('form.error');
+}
+
+function openNew() {
+	editing.value = null;
+	formError.value = '';
+	formOpen.value = true;
+}
+
+function openEdit(contact: Contact) {
+	editing.value = contact;
+	formError.value = '';
+	formOpen.value = true;
+}
+
+/** Guarda lo que armó el formulario; si salió bien, lo cierra. */
+async function submitForm(payload: {
+	accountId: string;
+	addressBookId: string;
+	payload: Record<string, unknown>;
+	ifMatch: string;
+}) {
+	if (saving.value) {
+		return;
+	}
+	saving.value = true;
+	formError.value = '';
+	try {
+		const error = await saveContact(payload);
+		if (error) {
+			formError.value = writeErrorText(error);
+			return;
+		}
+		formOpen.value = false;
+	} finally {
+		saving.value = false;
+	}
+}
+
+/** Borra un contacto ya confirmado; si no se pudo, lo dice. */
+async function removeContact(contact: Contact) {
+	const error = await deleteContact(contact);
+	actionNotice.value = error ? writeErrorText(error) : '';
+}
 
 /**
  * El botón de «volver a pedir el permiso»: mientras pide se desactiva —no es
@@ -139,6 +208,16 @@ onMounted(cargar);
       <span v-if="cargando" class="text-tx-muted text-xs" role="status">
         {{ t('lista.cargando') }}
       </span>
+      <!-- Crear un contacto. Sólo si hay una libreta donde ponerlo —sin cuentas
+           conectadas no hay dónde—, y nunca mientras el almacén está negado. -->
+      <ActionButton
+        v-if="!sinPermiso && addressBooks.length > 0"
+        variant="ghost"
+        label=""
+        icon="contact-new"
+        :icon-alt="t('form.newTitle')"
+        :title="t('form.newTitle')"
+        @click="openNew()" />
       <!-- `ghost`, como los tres botones de la ventana que tiene al lado: los
            cuatro son controles de la barra y se leen como un grupo. -->
       <ActionButton
@@ -249,7 +328,33 @@ onMounted(cargar);
         :contact="elegido"
         v-bind="{ 'data-pane': 'detail' }"
         :class="paneClass('detail', pane)"
-        @back="go('list')" />
+        @back="go('list')"
+        @edit="openEdit"
+        @remove="removeContact" />
     </template>
+
+    <!-- El aviso de que un borrado no se pudo: una barra al pie, que se cierra.
+         No tapa la agenda, que sigue mostrando al contacto que volvió. -->
+    <template #pie>
+      <AlertMessage
+        v-if="actionNotice"
+        tone="error"
+        variant="banner"
+        icon="auto"
+        dismissible
+        :title="actionNotice"
+        @close="actionNotice = ''" />
+    </template>
+
+    <!-- El formulario de crear o editar. Flota dentro de la ventana, así que es
+         opaco (lo pone `DialogContent`); no cambia el formato de ninguna
+         columna. -->
+    <ContactForm
+      v-model:open="formOpen"
+      :contact="editing"
+      :address-books="addressBooks"
+      :saving="saving"
+      :error="formError"
+      @submit="submitForm" />
   </WindowAppLayout>
 </template>

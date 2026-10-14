@@ -462,3 +462,106 @@ describe('sin permiso para leer el almacén', () => {
 		expect(mounted.text()).toContain('permiso.limite');
 	});
 });
+
+describe('crear, editar y borrar', () => {
+	/** Ana, con lo que hace falta para borrarla: número local y cuenta. */
+	const ANA_LOCAL = emptyContact({
+		name: 'Ana Pérez',
+		sort_key: 'Pérez, Ana',
+		url: 'store:a1:https://x/ana.vcf',
+		store_id: '7',
+		address_book_id: '1',
+	});
+
+	test('saveContact le pide al almacén guardar y después relee', async () => {
+		answerAccounts({ a1: [ANA] });
+		const { saveContact } = agenda();
+		answerCommand('save_contact', () => '101');
+		invokedCommands.length = 0;
+
+		const error = await saveContact({
+			accountId: 'a1',
+			addressBookId: '1',
+			payload: { full_name: 'Nueva' },
+			ifMatch: '',
+		});
+
+		expect(error).toBeNull();
+		const guardar = invokedCommands.find((c) => c.command === 'save_contact');
+		expect(guardar?.args).toEqual({
+			accountId: 'a1',
+			addressBookId: '1',
+			payload: { full_name: 'Nueva' },
+			ifMatch: '',
+		});
+		// Después de guardar relee, para que lo nuevo aparezca.
+		expect(commands()).toContain('listar_cuentas');
+	});
+
+	test('saveContact devuelve el error crudo cuando el almacén dice que no', async () => {
+		answerAccounts({ a1: [ANA] });
+		const { saveContact } = agenda();
+		answerCommand('save_contact', () => {
+			throw new Error('store-permission-denied');
+		});
+
+		const error = await saveContact({
+			accountId: 'a1',
+			addressBookId: '1',
+			payload: {},
+			ifMatch: '',
+		});
+
+		// Crudo: la vista lo traduce (no la agenda).
+		expect(error).toContain('store-permission-denied');
+	});
+
+	test('deleteContact saca el contacto y manda el número local y el ETag', async () => {
+		answerAccounts({ a1: [ANA_LOCAL] });
+		const { contactos, cargar, deleteContact, elegir, elegido } = agenda();
+		await cargar();
+		const ana = contactos.value[0];
+		elegir(ana);
+		// Al borrar, el almacén ya no lo devuelve.
+		answerAccounts({ a1: [] });
+		answerCommand('delete_contact', () => undefined);
+		invokedCommands.length = 0;
+
+		const error = await deleteContact(ana);
+
+		expect(error).toBeNull();
+		const borrar = invokedCommands.find((c) => c.command === 'delete_contact');
+		expect(borrar?.args).toEqual({ accountId: 'a1', contactId: '7', ifMatch: '' });
+		// Se fue de la lista y, como estaba abierto, se cerró.
+		expect(contactos.value).toHaveLength(0);
+		expect(elegido.value).toBeNull();
+	});
+
+	test('deleteContact no hace nada sin número local', async () => {
+		answerAccounts({ a1: [ANA] });
+		const { contactos, cargar, deleteContact } = agenda();
+		await cargar();
+		invokedCommands.length = 0;
+
+		const error = await deleteContact(contactos.value[0]);
+
+		expect(error).toBe('no-store-id');
+		expect(commands()).not.toContain('delete_contact');
+	});
+
+	test('deleteContact restaura y avisa cuando el almacén falla', async () => {
+		answerAccounts({ a1: [ANA_LOCAL] });
+		const { contactos, cargar, deleteContact } = agenda();
+		await cargar();
+		const ana = contactos.value[0];
+		answerCommand('delete_contact', () => {
+			throw new Error('el bus se cortó');
+		});
+
+		const error = await deleteContact(ana);
+
+		expect(error).toContain('el bus se cortó');
+		// No se pudo borrar: el contacto sigue en la lista.
+		expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez']);
+	});
+});

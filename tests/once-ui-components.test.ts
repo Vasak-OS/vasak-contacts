@@ -199,6 +199,9 @@ describe('la ficha', () => {
 		expect(buttons.map((b) => b.props('label'))).toEqual([
 			// El de volver a la lista, que sólo se ve con la ventana angosta.
 			'nav.contacts',
+			// Editar, en la cabecera; sin ETag se ve deshabilitado (punto 5). Sin
+			// número local no hay botón de borrar en este contacto de prueba.
+			'form.edit',
 			'contact.write',
 			'contact.copy',
 			'contact.call',

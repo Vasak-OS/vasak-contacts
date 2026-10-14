@@ -149,6 +149,21 @@ pub struct Contact {
     /// ventana lo usa para dejar elegir qué libretas se ven (vasak-contacts#4).
     #[serde(default)]
     pub address_book_id: String,
+    /// El número local del contacto dentro del almacén, para editarlo o
+    /// borrarlo (`PutContact`/`DeleteContact`). Lo pone `store::contacts_from`
+    /// con el `id` de la tarjeta guardada; vacío cuando la lectura va al
+    /// servidor —ahí no hay número local— o cuando es una sub-tarjeta de un
+    /// recurso con varias (sólo la primera lleva el número del recurso). No sale
+    /// de la vCard: no es el `UID` sino la fila de la base.
+    #[serde(default)]
+    pub store_id: String,
+    /// El ETag de la tarjeta, la precondición para editarla sin pisar un cambio
+    /// de otro lado (`if_match` de `PutContact`). Hoy el almacén no lo entrega
+    /// por `ListContactCards`, así que viaja vacío y la ventana deja «editar»
+    /// pendiente (vasak-contacts#2, punto 5); lo llena el PR que suma
+    /// `sync_state` a los DTOs.
+    #[serde(default)]
+    pub etag: String,
 
     /// La foto como `data:` URI, lista para mostrar. Vacía si no hay.
     #[serde(default)]

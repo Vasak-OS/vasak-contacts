@@ -31,7 +31,7 @@ contact:
   copy: Copy
   copied: Copied
   open: Open
-  readOnly: This version shows contacts; editing comes later.
+  relations: Relationships
   photoAlt: "Photo of {0}"
   photoTooLarge: The photo on this card is too large to show.
   photoInsecure: The photo is at an unencrypted address and is not downloaded.
@@ -65,6 +65,42 @@ contact:
     profile: profile
     anniversary: anniversary
     school: school
+# Crear, editar y borrar un contacto (vasak-contacts#2/#3).
+form:
+  newTitle: New contact
+  editTitle: Edit contact
+  name: Name
+  namePlaceholder: Full name
+  organization: Organization
+  addressBook: Address book
+  emailPlaceholder: name@example.com
+  phonePlaceholder: Phone
+  relationPlaceholder: Person's name
+  addEmail: Add email
+  addPhone: Add phone
+  addRelation: Add relationship
+  remove: Remove
+  cancel: Cancel
+  create: Create
+  save: Save
+  edit: Edit
+  editPending: "Waiting to sync: cannot edit yet"
+  delete: Delete
+  deleteTitle: Delete contact
+  deleteConfirm: "Delete {0}? This cannot be undone."
+  denied: You have not allowed changing the contacts stored on the system.
+  error: The change could not be completed.
+  # Los vínculos de una relación, para el selector del formulario.
+  relations:
+    spouse: spouse
+    child: child
+    parent: parent
+    sibling: sibling
+    friend: friend
+    partner: partner
+    assistant: assistant
+    manager: manager
+    other: other
 # Elegir qué libretas se ven y filtrar por categoría, en el panel de cuentas.
 filtros:
   libretas: Address books

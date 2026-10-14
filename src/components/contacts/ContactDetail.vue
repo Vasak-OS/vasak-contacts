@@ -4,6 +4,12 @@ import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
 	Badge,
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
 	Disclosure,
 	Panel,
 	type PropertyItem,
@@ -12,7 +18,7 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { computed, ref } from 'vue';
 import ContactPhoto from '@/components/contacts/ContactPhoto.vue';
-import type { Contact } from '@/tools/address-book';
+import { type Contact, canDelete, canEdit } from '@/tools/address-book';
 import {
 	addressLines,
 	customFieldName,
@@ -23,15 +29,38 @@ import {
 	webLink,
 } from '@/tools/contact-fields';
 import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
+import { interpolar } from '@/tools/interpolar';
 import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
 
 const props = defineProps<{ contact: Contact | null }>();
 const emit = defineEmits<{
 	/** Volver a la lista, con la ventana angosta. */
 	back: [];
+	/** Editar este contacto. Sólo se pide cuando se puede (`canEdit`). */
+	edit: [contact: Contact];
+	/** Borrar este contacto, ya confirmado. */
+	remove: [contact: Contact];
 }>();
 
 const { t, locale } = useI18n();
+
+/** Si se puede editar o borrar el contacto que se está viendo. */
+const editable = computed(() => (props.contact ? canEdit(props.contact) : false));
+const removable = computed(() => (props.contact ? canDelete(props.contact) : false));
+
+/** El diálogo de confirmar el borrado. */
+const confirmingDelete = ref(false);
+
+function askDelete() {
+	confirmingDelete.value = true;
+}
+
+function confirmDelete() {
+	if (props.contact) {
+		emit('remove', props.contact);
+	}
+	confirmingDelete.value = false;
+}
 
 /** Lo último que se copió, para decirlo un momento. */
 const copied = ref('');
@@ -231,6 +260,35 @@ const kindLabel = computed(() => {
             </li>
           </ul>
         </div>
+
+        <!-- Editar y borrar, arriba a la derecha. `ml-auto` los empuja al borde;
+             con la ficha angosta la cabecera ya apila la foto y el nombre, y los
+             botones caen a su propio renglón sin pisarse.
+
+             Editar se deshabilita hasta que el contacto tenga ETag (punto 5): un
+             contacto recién creado, o cualquiera mientras el almacén no entregue
+             el ETag, se muestra «pendiente» y no se puede editar sin arriesgar a
+             pisar un cambio de otro lado. -->
+        <div class="flex shrink-0 gap-1 @min-[12rem]:ml-auto @min-[12rem]:self-start">
+          <ActionButton
+            variant="ghost"
+            size="sm"
+            icon="document-edit"
+            icon-type="symbol"
+            :label="t('form.edit')"
+            :title="editable ? t('form.edit') : t('form.editPending')"
+            :disabled="!editable"
+            @click="emit('edit', contact)" />
+          <ActionButton
+            v-if="removable"
+            variant="ghost"
+            size="sm"
+            icon="user-trash"
+            icon-type="symbol"
+            :label="t('form.delete')"
+            :title="t('form.delete')"
+            @click="askDelete" />
+        </div>
       </header>
 
       <div class="flex flex-col gap-4 p-4">
@@ -418,8 +476,31 @@ const kindLabel = computed(() => {
           </PropertyList>
         </Disclosure>
 
-        <p class="text-tx-muted text-xs">{{ t('contact.readOnly') }}</p>
       </div>
     </template>
+
+    <!-- Confirmar el borrado: es irreversible del lado de la ventana —después
+         lo encola el almacén hacia el servidor—, así que se pregunta antes. El
+         diálogo flota dentro de la ventana, así que es opaco (lo pone
+         `DialogContent`). -->
+    <Dialog v-model:open="confirmingDelete">
+      <DialogContent size="sm">
+        <DialogHeader>
+          <DialogTitle>{{ t('form.deleteTitle') }}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <p class="text-body-m">
+            {{ interpolar(t('form.deleteConfirm'), contact?.name || t('lista.sinNombre')) }}
+          </p>
+        </DialogBody>
+        <DialogFooter>
+          <ActionButton
+            variant="secondary"
+            :label="t('form.cancel')"
+            @click="confirmingDelete = false" />
+          <ActionButton variant="danger" :label="t('form.delete')" @click="confirmDelete" />
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   </Panel>
 </template>
