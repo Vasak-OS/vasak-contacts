@@ -3,6 +3,7 @@ import { open as openWithSystem } from '@tauri-apps/plugin-shell';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
+	AlertMessage,
 	Badge,
 	Dialog,
 	DialogBody,
@@ -31,6 +32,7 @@ import {
 import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
 import { interpolar } from '@/tools/interpolar';
 import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
+import { syncBadge } from '@/tools/sync-badge';
 
 const props = defineProps<{ contact: Contact | null }>();
 const emit = defineEmits<{
@@ -40,6 +42,8 @@ const emit = defineEmits<{
 	edit: [contact: Contact];
 	/** Borrar este contacto, ya confirmado. */
 	remove: [contact: Contact];
+	/** Resolver el conflicto de este contacto (abrir la comparación). */
+	resolve: [contact: Contact];
 }>();
 
 const { t, locale } = useI18n();
@@ -47,6 +51,11 @@ const { t, locale } = useI18n();
 /** Si se puede editar o borrar el contacto que se está viendo. */
 const editable = computed(() => (props.contact ? canEdit(props.contact) : false));
 const removable = computed(() => (props.contact ? canDelete(props.contact) : false));
+
+/** La insignia «sin sincronizar» del contacto, o `null` si está al día. */
+const badge = computed(() => (props.contact ? syncBadge(props.contact.sync_state) : null));
+/** Si el contacto chocó con el servidor y hay un conflicto que resolver. */
+const inConflict = computed(() => props.contact?.sync_state === 'conflict');
 
 /** El diálogo de confirmar el borrado. */
 const confirmingDelete = ref(false);
@@ -252,6 +261,19 @@ const kindLabel = computed(() => {
             <span v-if="contact.organization" class="text-tx-muted">{{ contact.organization }}</span>
           </p>
           <p v-if="kindLabel" class="text-tx-muted text-xs">{{ kindLabel }}</p>
+          <!-- La insignia «sin sincronizar», si el contacto tiene un cambio sin
+               subir o un conflicto. El mismo tono y texto que en la lista
+               (`tools/sync-badge.ts`). -->
+          <div v-if="badge" class="flex">
+            <Badge
+              :tone="badge.tone"
+              variant="soft"
+              size="sm"
+              dot
+              :label="t(badge.key)"
+              :title="t(badge.titleKey)"
+              v-bind="{ 'data-testid': 'sync-badge' }" />
+          </div>
           <ul v-if="contact.categories.length > 0" class="flex flex-wrap gap-1" :aria-label="t('contact.categories')">
             <!-- Una insignia de contorno: es una etiqueta de quien hizo la tarjeta,
                  no un estado, y no tiene que competir con el nombre. -->
@@ -292,6 +314,26 @@ const kindLabel = computed(() => {
       </header>
 
       <div class="flex flex-col gap-4 p-4">
+        <!-- El conflicto se avisa arriba, con el botón que abre la comparación:
+             un cambio local chocó con el servidor y la persona tiene que elegir
+             cuál queda. No tapa la ficha, que sigue mostrando la versión local. -->
+        <AlertMessage
+          v-if="inConflict"
+          tone="warning"
+          variant="banner"
+          icon="auto"
+          :title="t('conflict.bannerTitle')"
+          v-bind="{ 'data-testid': 'conflict-banner' }">
+          {{ t('conflict.bannerBody') }}
+          <template #actions>
+            <ActionButton
+              variant="primary"
+              size="sm"
+              :label="t('conflict.resolve')"
+              @click="emit('resolve', contact)" />
+          </template>
+        </AlertMessage>
+
         <p v-if="photoNote" class="text-tx-muted text-xs" data-testid="photo-note">{{ photoNote }}</p>
 
         <!-- La clave lleva la posición y la etiqueta, no sólo el valor: un

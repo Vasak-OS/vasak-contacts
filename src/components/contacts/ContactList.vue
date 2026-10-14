@@ -2,6 +2,7 @@
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
+	Badge,
 	EmptyState,
 	ListRow,
 	LoadingState,
@@ -12,6 +13,7 @@ import { computed } from 'vue';
 import { type Contact, initialOf } from '@/tools/address-book';
 import { interpolar } from '@/tools/interpolar';
 import { NARROW_ONLY } from '@/tools/narrow-layout';
+import { syncBadge } from '@/tools/sync-badge';
 
 const props = defineProps<{
 	contacts: Contact[];
@@ -113,7 +115,21 @@ function titleOf(initial: string): string {
               :title="contact.name || t('lista.sinNombre')"
               :description="contact.organization || undefined"
               :selected="contact.url === selected?.url"
-              @click="emit('select', contact)" />
+              @click="emit('select', contact)">
+              <!-- La insignia «sin sincronizar»: sólo si el contacto tiene un
+                   cambio local sin subir o un conflicto. Un punto del color del
+                   tono y el texto corto; el estado entero va en el globo. Al día
+                   no lleva ninguna. -->
+              <template v-if="syncBadge(contact.sync_state)" #trailing>
+                <Badge
+                  :tone="syncBadge(contact.sync_state)!.tone"
+                  variant="soft"
+                  size="sm"
+                  dot
+                  :label="t(syncBadge(contact.sync_state)!.key)"
+                  :title="t(syncBadge(contact.sync_state)!.titleKey)" />
+              </template>
+            </ListRow>
           </li>
         </ul>
       </section>

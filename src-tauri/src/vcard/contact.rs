@@ -158,12 +158,19 @@ pub struct Contact {
     #[serde(default)]
     pub store_id: String,
     /// El ETag de la tarjeta, la precondición para editarla sin pisar un cambio
-    /// de otro lado (`if_match` de `PutContact`). Hoy el almacén no lo entrega
-    /// por `ListContactCards`, así que viaja vacío y la ventana deja «editar»
-    /// pendiente (vasak-contacts#2, punto 5); lo llena el PR que suma
-    /// `sync_state` a los DTOs.
+    /// de otro lado (`if_match` de `PutContact`). Lo pone `store::contacts_from`
+    /// con el ETag que el almacén entrega por `ListContactCards`; vacío cuando la
+    /// lectura va al servidor, cuando la tarjeta es una creación local sin
+    /// confirmar, o cuando es una sub-tarjeta de un recurso con varias. Mientras
+    /// viaje vacío, la ventana deja «editar» pendiente (`canEdit`).
     #[serde(default)]
     pub etag: String,
+    /// El estado de sincronización de la tarjeta (`synced`/`pending`/`conflict`),
+    /// para la insignia «sin sincronizar» y para saber si hay un conflicto que
+    /// resolver. Lo pone `store::contacts_from` con lo que entrega el almacén;
+    /// `synced` por omisión cuando la lectura va al servidor o es una sub-tarjeta.
+    #[serde(default)]
+    pub sync_state: crate::store::SyncState,
 
     /// La foto como `data:` URI, lista para mostrar. Vacía si no hay.
     #[serde(default)]

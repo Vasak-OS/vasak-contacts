@@ -122,6 +122,33 @@ sync:
     too_soon: Just refreshed; you can refresh again in a moment
     unavailable: The sync service is not running
     failed: Could not request a sync
+  # La insignia «sin sincronizar» de cada contacto, en la lista y en la ficha.
+  # Ver `src/tools/sync-badge.ts`.
+  badge:
+    pending: Not synced
+    pendingTitle: A change is waiting to upload; it syncs when it can
+    conflict: Conflict
+    conflictTitle: The change clashed with the server; pick which one stays
+# Resolver un conflicto: un cambio local que chocó con el servidor. El banner en
+# la ficha y la comparación «mantener la mía / tomar la del servidor».
+conflict:
+  # El banner de la ficha.
+  bannerTitle: This contact has a conflict
+  bannerBody: You changed it here and it also changed on the server. Pick which version stays.
+  resolve: Resolve
+  # El diálogo de la comparación.
+  title: Resolve the conflict
+  explain: Compare the two versions and pick which one stays. The other is discarded.
+  loading: Fetching the comparison…
+  mine: Mine
+  theirs: The server's
+  mineDelete: You deleted it here.
+  serverUnavailable: There is no server copy to compare yet.
+  retry: Retry
+  keepMine: Keep mine
+  takeTheirs: Take the server's
+  denied: You did not allow changing the contacts stored on the system.
+  error: Could not resolve the conflict.
 # El estado de «sin permiso» para leer el almacén, con el botón que vuelve a
 # abrir el diálogo. Ver `src/tools/store-permission.ts`.
 permiso:

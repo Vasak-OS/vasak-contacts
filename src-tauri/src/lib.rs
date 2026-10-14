@@ -47,6 +47,9 @@ pub fn run() {
             commands::request_store_permission_again,
             commands::save_contact,
             commands::delete_contact,
+            commands::list_contact_conflicts,
+            commands::get_contact_conflict,
+            commands::resolve_contact_conflict,
             photos::contact_photo,
         ])
         .setup(|app| {

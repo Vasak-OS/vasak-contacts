@@ -164,6 +164,57 @@ pub async fn delete_contact(
         .map_err(denied_or)
 }
 
+/// Los contactos en conflicto de una cuenta: un cambio local que chocó con el
+/// servidor. El área es siempre `contacts`. Un «no» vuelve como
+/// [`STORE_PERMISSION_DENIED`], como en las lecturas.
+#[tauri::command]
+pub async fn list_contact_conflicts(
+    app: tauri::AppHandle,
+    account_id: String,
+) -> Result<Vec<crate::store::ConflictItem>, String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    crate::store::list_conflicts(&app.store(), &account_id, crate::store::CONTACTS_AREA)
+        .await
+        .map_err(denied_or)
+}
+
+/// La comparación de un contacto en conflicto —la versión local y la del
+/// servidor—, por su número local (`store_id`). Para la vista «mantener la mía /
+/// tomar la del servidor». Un «no» vuelve como [`STORE_PERMISSION_DENIED`].
+#[tauri::command]
+pub async fn get_contact_conflict(
+    app: tauri::AppHandle,
+    account_id: String,
+    id: String,
+) -> Result<crate::store::ConflictDetail, String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    crate::store::get_conflict(&app.store(), &account_id, crate::store::CONTACTS_AREA, &id)
+        .await
+        .map_err(denied_or)
+}
+
+/// Resuelve un conflicto de un contacto: `keep_local` deja el cambio local,
+/// `take_server` toma la versión del servidor. El área es siempre `contacts`. Un
+/// «no» vuelve como [`STORE_PERMISSION_DENIED`].
+#[tauri::command]
+pub async fn resolve_contact_conflict(
+    app: tauri::AppHandle,
+    account_id: String,
+    id: String,
+    choice: crate::store::ConflictChoice,
+) -> Result<(), String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    crate::store::resolve_conflict(
+        &app.store(),
+        &account_id,
+        crate::store::CONTACTS_AREA,
+        &id,
+        choice,
+    )
+    .await
+    .map_err(denied_or)
+}
+
 /// Pasa un «no» de la persona a la marca que la ventana traduce; cualquier otro
 /// error viaja como vino, para que se vea el motivo.
 fn denied_or(error: String) -> String {
