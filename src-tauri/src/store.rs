@@ -1415,7 +1415,10 @@ mod tests {
         assert_eq!(items[0].op, "put");
         assert!(items[0].has_server_copy);
 
-        assert!(parse_conflict_list("[]").is_err(), "una lista cruda no sirve");
+        assert!(
+            parse_conflict_list("[]").is_err(),
+            "una lista cruda no sirve"
+        );
         assert!(parse_conflict_list("no es json").is_err());
         // Sin conflictos sí es una respuesta válida: la lista vacía.
         assert!(parse_conflict_list(r#"{"items":[]}"#).unwrap().is_empty());
