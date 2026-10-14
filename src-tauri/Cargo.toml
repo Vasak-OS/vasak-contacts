@@ -1,6 +1,6 @@
 [package]
 name = "vasak-contacts"
-version = "0.13.0"
+version = "0.14.0"
 description = "Los contactos de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
