@@ -62,6 +62,13 @@ export interface CustomField {
 /** Por qué una tarjeta con foto se muestra con las iniciales. */
 export type PhotoSkipped = 'too_large' | 'unsupported' | 'insecure';
 
+/**
+ * El estado de sincronización de un contacto, como lo entrega el almacén: al
+ * día, un cambio local sin subir, o un cambio que chocó con el servidor. La
+ * misma forma que `SyncState` de `vasak-accounts` (texto en minúscula).
+ */
+export type SyncState = 'synced' | 'pending' | 'conflict';
+
 /** Un contacto tal como llega del programa. */
 export interface Contact {
 	uid: string;
@@ -89,11 +96,19 @@ export interface Contact {
 	store_id: string;
 	/**
 	 * El ETag de la tarjeta: la precondición para editarla sin pisar un cambio
-	 * de otro lado. Hoy el almacén no lo entrega, así que viaja vacío y la
-	 * ventana deja «editar» pendiente (ver `canEdit`); lo llena el PR que suma
-	 * `sync_state` a los DTOs.
+	 * de otro lado. Lo pone el programa con lo que entrega el almacén; vacío
+	 * cuando la lectura va al servidor, cuando es una creación local sin
+	 * confirmar, o cuando es una sub-tarjeta de un recurso con varias. Mientras
+	 * viaje vacío, la ventana deja «editar» pendiente (ver `canEdit`).
 	 */
 	etag: string;
+	/**
+	 * El estado de sincronización de la tarjeta, para la insignia «sin
+	 * sincronizar» y para saber si hay un conflicto que resolver. Lo pone el
+	 * programa con lo que entrega el almacén; `synced` cuando la lectura va al
+	 * servidor o es una sub-tarjeta.
+	 */
+	sync_state: SyncState;
 	/**
 	 * De qué cuenta es el contacto. **Lo pone la ventana** al juntar lo de cada
 	 * cuenta (`use-agenda.ts`), no el programa: dos cuentas pueden tener una
@@ -145,6 +160,7 @@ export function emptyContact(overrides: Partial<Contact> = {}): Contact {
 		address_book_id: '',
 		store_id: '',
 		etag: '',
+		sync_state: 'synced',
 		account_id: '',
 		photo: '',
 		photo_url: '',

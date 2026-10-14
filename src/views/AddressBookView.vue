@@ -9,6 +9,7 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
 import AccountsPanel from '@/components/contacts/AccountsPanel.vue';
+import ConflictDialog from '@/components/contacts/ConflictDialog.vue';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import ContactForm from '@/components/contacts/ContactForm.vue';
 import ContactList from '@/components/contacts/ContactList.vue';
@@ -34,6 +35,8 @@ const {
 	pedirPermisoDeNuevo,
 	saveContact,
 	deleteContact,
+	getConflict,
+	resolveConflict,
 	elegir,
 	syncStatuses,
 	refreshFailures,
@@ -58,6 +61,18 @@ const formError = ref('');
 
 /** El error de borrar, cuando no se pudo; se muestra como un aviso y se cierra. */
 const actionNotice = ref('');
+
+/**
+ * La comparación de un conflicto. `conflictContact` es el contacto que se está
+ * resolviendo; el diálogo trae la comparación y resuelve con `useAgenda`.
+ */
+const conflictOpen = ref(false);
+const conflictContact = ref<Contact | null>(null);
+
+function openConflict(contact: Contact) {
+	conflictContact.value = contact;
+	conflictOpen.value = true;
+}
 
 /** Traduce el error de un comando de escritura para mostrarlo. */
 function writeErrorText(error: string): string {
@@ -330,7 +345,8 @@ onMounted(cargar);
         :class="paneClass('detail', pane)"
         @back="go('list')"
         @edit="openEdit"
-        @remove="removeContact" />
+        @remove="removeContact"
+        @resolve="openConflict" />
     </template>
 
     <!-- El aviso de que un borrado no se pudo: una barra al pie, que se cierra.
@@ -356,5 +372,14 @@ onMounted(cargar);
       :saving="saving"
       :error="formError"
       @submit="submitForm" />
+
+    <!-- La comparación de un conflicto: la versión local y la del servidor, con
+         «mantener la mía» y «tomar la del servidor». Flota dentro de la ventana,
+         así que es opaca (lo pone `DialogContent`). -->
+    <ConflictDialog
+      v-model:open="conflictOpen"
+      :contact="conflictContact"
+      :load="getConflict"
+      :resolve="resolveConflict" />
   </WindowAppLayout>
 </template>

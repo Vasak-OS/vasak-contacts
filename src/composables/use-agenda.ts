@@ -10,6 +10,7 @@ import {
 } from '@vasakgroup/plugin-vsk-store';
 import { computed, onScopeDispose, ref } from 'vue';
 import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
+import type { ConflictChoice, ConflictDetail } from '@/tools/conflict';
 import {
 	type AddressBook,
 	collectAddressBooks,
@@ -318,6 +319,41 @@ export function useAgenda(locale: () => string) {
 		return null;
 	}
 
+	/**
+	 * Trae la comparación de un contacto en conflicto: la versión local y la del
+	 * servidor, para la vista «mantener la mía / tomar la del servidor». Lanza con
+	 * el error crudo del comando si no se pudo —la vista lo traduce—.
+	 */
+	async function getConflict(contacto: Contact): Promise<ConflictDetail> {
+		return invoke<ConflictDetail>('get_contact_conflict', {
+			accountId: contacto.account_id,
+			id: contacto.store_id,
+		});
+	}
+
+	/**
+	 * Resuelve el conflicto de un contacto y relee: `keep_local` deja el cambio
+	 * local, `take_server` toma la versión del servidor. Lo que sincronice el
+	 * almacén después llega por su aviso de cambios, que ya relee solo. Devuelve
+	 * el error crudo si no se pudo —la vista lo traduce— o `null` si salió bien.
+	 */
+	async function resolveConflict(
+		contacto: Contact,
+		choice: ConflictChoice
+	): Promise<string | null> {
+		try {
+			await invoke('resolve_contact_conflict', {
+				accountId: contacto.account_id,
+				id: contacto.store_id,
+				choice,
+			});
+		} catch (e) {
+			return String(e);
+		}
+		await cargar();
+		return null;
+	}
+
 	/** El estado de la sincronización de cada cuenta, del almacén. */
 	const syncStatuses = ref<AccountSyncStatus[]>([]);
 	/** Las cuentas a las que el último «Actualizar» no les pudo pedir una vuelta. */
@@ -418,6 +454,8 @@ export function useAgenda(locale: () => string) {
 		pedirPermisoDeNuevo,
 		saveContact,
 		deleteContact,
+		getConflict,
+		resolveConflict,
 		syncStatuses,
 		refreshFailures,
 		elegir,

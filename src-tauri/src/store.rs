@@ -17,12 +17,33 @@
 //! queda lo propio de los contactos: qué se pide, el tope de tamaño de lo que
 //! llega y cómo se lee cada tarjeta.
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tauri_plugin_vsk_store::{Error as StoreError, StoreClient};
 
 use crate::carddav::Libreta;
 use crate::commands::LecturaDeCuenta;
 use crate::vcard;
+
+/// El estado de sincronización de una tarjeta, como lo entrega el almacén y
+/// como lo lee la ventana: al día, un cambio local sin subir, o un cambio que
+/// chocó con el servidor.
+///
+/// Es la misma forma que `vasak-accounts` (`sync/src/store/queue.rs`,
+/// `SyncState`): texto en minúscula (`synced`/`pending`/`conflict`). Se lee con
+/// `#[serde(default)]` en las tarjetas, así que un almacén viejo que todavía no
+/// lo manda cae en `synced` en vez de fallar la lectura entera.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SyncState {
+    /// Al día con el servidor: sin cambio local pendiente.
+    #[default]
+    Synced,
+    /// Hay un cambio local sin confirmar, a la espera de subir.
+    Pending,
+    /// El cambio local chocó con el servidor: lo resuelve la superficie de
+    /// conflicto (`ListConflicts`/`GetConflict`/`ResolveConflict`).
+    Conflict,
+}
 
 /// Cuántas tarjetas se piden por página: el máximo que acepta el almacén.
 const PAGE_SIZE: u32 = 1000;
@@ -54,6 +75,15 @@ pub struct StoredCard {
     #[serde(default)]
     pub href: String,
     pub vcard: String,
+    /// El ETag guardado, la precondición para editar (`if_match` de
+    /// `PutContact`). Vacío en una tarjeta recién creada local sin confirmar.
+    /// `#[serde(default)]`: un almacén viejo que no lo manda la deja vacía, no
+    /// rompe la lectura.
+    #[serde(default)]
+    pub etag: String,
+    /// El estado de sincronización de la tarjeta. Ver [`SyncState`].
+    #[serde(default)]
+    pub sync_state: SyncState,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -146,6 +176,12 @@ pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::
             // recurso: sólo la primera tarjeta lo lleva, porque una sub-tarjeta
             // de un recurso con varias no tiene fila propia que tocar.
             let store_id = t.id.clone();
+            // El ETag y el estado también son del recurso, así que viajan con el
+            // número local: sólo la primera tarjeta puede editarse o resolver un
+            // conflicto. Una sub-tarjeta sin fila propia queda sin ETag —y por
+            // eso `canEdit` la deja pendiente— y al día, porque no hay op suya.
+            let etag = t.etag.clone();
+            let sync_state = t.sync_state;
             vcard::split_cards(&t.vcard)
                 .into_iter()
                 .enumerate()
@@ -155,14 +191,16 @@ pub fn contacts_from(account_id: &str, tarjetas: Vec<StoredCard>) -> Vec<vcard::
                     } else {
                         format!("{base}#{i}")
                     };
-                    let store_id = if i == 0 {
-                        store_id.clone()
+                    let (store_id, etag, sync_state) = if i == 0 {
+                        (store_id.clone(), etag.clone(), sync_state)
                     } else {
-                        String::new()
+                        (String::new(), String::new(), SyncState::default())
                     };
                     vcard::contact_from(&card, &id).map(|mut contact| {
                         contact.address_book_id = address_book_id.clone();
                         contact.store_id = store_id;
+                        contact.etag = etag;
+                        contact.sync_state = sync_state;
                         contact
                     })
                 })
@@ -293,6 +331,142 @@ pub async fn delete_contact(
     Ok(())
 }
 
+/// El área de contactos, tal como la nombra `vasak-accounts` en los métodos de
+/// conflicto. Tiene que coincidir letra por letra con `CONTACTS_AREA` del
+/// servicio, o el método contesta «área sin conflictos».
+pub const CONTACTS_AREA: &str = "contacts";
+
+/// Un objeto en conflicto, como lo lista `ListConflicts`. La misma forma que
+/// `vasak-accounts` (`sync/src/store/conflict_read.rs`, `ConflictItem`): lo
+/// mínimo para dibujar la fila, nunca el `href` ni los crudos.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ConflictItem {
+    /// El id local del objeto, el mismo que toma `GetConflict` (y el `store_id`
+    /// del contacto).
+    pub id: String,
+    /// Qué cambio local chocó: `put` (creación o edición) o `delete`.
+    pub op: String,
+    /// El nombre del contacto, para la fila. Vacío si no se pudo resolver.
+    pub summary: String,
+    /// Si ya se trajo la copia del servidor para comparar.
+    pub has_server_copy: bool,
+}
+
+/// La respuesta de `ListConflicts`: `{items: [...]}`.
+#[derive(Debug, Clone, Deserialize)]
+struct ConflictList {
+    #[serde(default)]
+    items: Vec<ConflictItem>,
+}
+
+/// La comparación de un objeto en conflicto, como la devuelve `GetConflict`. La
+/// misma forma que `vasak-accounts` (`ConflictDetail`): el crudo local y el del
+/// servidor, para la vista «mantener la mía / tomar la del servidor».
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+pub struct ConflictDetail {
+    pub id: String,
+    /// `put` (creación o edición) o `delete` (borrado): con `delete` no hay
+    /// crudo local, «la mía» es borrarlo.
+    pub op: String,
+    /// La vCard local sin confirmar, o ausente cuando el cambio es un borrado.
+    #[serde(default)]
+    pub local: Option<String>,
+    /// La vCard de la versión del servidor, si ya se trajo.
+    #[serde(default)]
+    pub server: Option<String>,
+    /// El ETag de la versión del servidor, si hay copia.
+    #[serde(default)]
+    pub server_etag: Option<String>,
+    /// Si todavía no hay copia del servidor con qué comparar: la ventana muestra
+    /// «copia del servidor no disponible» y ofrece reintentar.
+    #[serde(default)]
+    pub server_unavailable: bool,
+}
+
+/// Cómo resuelve la persona un conflicto. La misma forma que `vasak-accounts`
+/// espera en `ResolveConflict`: `keep_local` deja el cambio local, `take_server`
+/// toma la versión del servidor y descarta el cambio.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConflictChoice {
+    KeepLocal,
+    TakeServer,
+}
+
+impl ConflictChoice {
+    /// El texto que espera el método del servicio.
+    fn as_str(self) -> &'static str {
+        match self {
+            ConflictChoice::KeepLocal => "keep_local",
+            ConflictChoice::TakeServer => "take_server",
+        }
+    }
+}
+
+/// Los objetos en conflicto de un área, por el cliente comprobado del plugin.
+pub async fn list_conflicts(
+    store: &StoreClient,
+    account_id: &str,
+    area: &str,
+) -> Result<Vec<ConflictItem>, String> {
+    let json = call(store, "ListConflicts", &(account_id, area)).await?;
+    parse_conflict_list(&json)
+}
+
+/// Los ítems de la respuesta de `ListConflicts`. Una respuesta que no se entiende
+/// es un error, nunca una lista vacía que parezca «no hay conflictos».
+///
+/// Se exige un **objeto** `{items: [...]}`: serde arma una estructura desde una
+/// secuencia posicional, así que sin este control una lista cruda `[]` se leería
+/// como `{items: []}` y una respuesta malformada parecería «sin conflictos».
+fn parse_conflict_list(json: &str) -> Result<Vec<ConflictItem>, String> {
+    let value: serde_json::Value = serde_json::from_str(json)
+        .map_err(|e| format!("respuesta inválida de ListConflicts: {e}"))?;
+    if !value.is_object() {
+        return Err("respuesta inválida de ListConflicts: no es un objeto".into());
+    }
+    let list: ConflictList = serde_json::from_value(value)
+        .map_err(|e| format!("respuesta inválida de ListConflicts: {e}"))?;
+    Ok(list.items)
+}
+
+/// La comparación de un objeto en conflicto, por su id local, por el cliente
+/// comprobado del plugin.
+pub async fn get_conflict(
+    store: &StoreClient,
+    account_id: &str,
+    area: &str,
+    id: &str,
+) -> Result<ConflictDetail, String> {
+    let json = call(store, "GetConflict", &(account_id, area, id)).await?;
+    parse_conflict_detail(&json)
+}
+
+/// El detalle de la respuesta de `GetConflict`. Una respuesta que no se entiende
+/// es un error, nunca una comparación a medias que parezca completa.
+fn parse_conflict_detail(json: &str) -> Result<ConflictDetail, String> {
+    serde_json::from_str(json).map_err(|e| format!("respuesta inválida de GetConflict: {e}"))
+}
+
+/// Resuelve un conflicto: deja el cambio local o toma la versión del servidor.
+/// Por el cliente comprobado del plugin, con el mismo mapeo de errores que las
+/// demás escrituras.
+pub async fn resolve_conflict(
+    store: &StoreClient,
+    account_id: &str,
+    area: &str,
+    id: &str,
+    choice: ConflictChoice,
+) -> Result<(), String> {
+    call(
+        store,
+        "ResolveConflict",
+        &(account_id, area, id, choice.as_str()),
+    )
+    .await?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -305,6 +479,8 @@ mod tests {
             address_book_id: "1".into(),
             href: href.into(),
             vcard: vcard.into(),
+            etag: String::new(),
+            sync_state: SyncState::default(),
         }
     }
 
@@ -500,18 +676,24 @@ mod tests {
             address_book_id: "personal".into(),
             href: "https://x/a/1.vcf".into(),
             vcard: named(1),
+            etag: String::new(),
+            sync_state: SyncState::default(),
         };
         let trabajo = StoredCard {
             id: "2".into(),
             address_book_id: "trabajo".into(),
             href: "https://x/b/2.vcf".into(),
             vcard: named(2),
+            etag: String::new(),
+            sync_state: SyncState::default(),
         };
         let sin_libreta = StoredCard {
             id: "3".into(),
             address_book_id: String::new(),
             href: "https://x/c/3.vcf".into(),
             vcard: named(3),
+            etag: String::new(),
+            sync_state: SyncState::default(),
         };
 
         let contacts = contacts_from("cuenta", vec![personal, trabajo, sin_libreta]);
@@ -532,6 +714,8 @@ mod tests {
             address_book_id: "compartida".into(),
             href: "https://x/todos.vcf".into(),
             vcard: two.into(),
+            etag: String::new(),
+            sync_state: SyncState::default(),
         };
         let contacts = contacts_from("a1", vec![stored]);
         assert_eq!(contacts.len(), 2);
@@ -882,6 +1066,60 @@ mod tests {
             }
             Ok("{}".to_string())
         }
+
+        fn list_conflicts(&self, account_id: String, area: String) -> zbus::fdo::Result<String> {
+            self.calls
+                .push(format!("ListConflicts {account_id} {area}"));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            Ok(serde_json::json!({
+                "items": [{
+                    "id": "7",
+                    "op": "put",
+                    "summary": "Ana",
+                    "has_server_copy": true,
+                }]
+            })
+            .to_string())
+        }
+
+        fn get_conflict(
+            &self,
+            account_id: String,
+            area: String,
+            id: String,
+        ) -> zbus::fdo::Result<String> {
+            self.calls
+                .push(format!("GetConflict {account_id} {area} {id}"));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            Ok(serde_json::json!({
+                "id": id,
+                "op": "put",
+                "local": "BEGIN:VCARD\r\nFN:Ana local\r\nEND:VCARD\r\n",
+                "server": "BEGIN:VCARD\r\nFN:Ana servidor\r\nEND:VCARD\r\n",
+                "server_etag": "etag-srv",
+                "server_unavailable": false,
+            })
+            .to_string())
+        }
+
+        fn resolve_conflict(
+            &self,
+            account_id: String,
+            area: String,
+            id: String,
+            choice: String,
+        ) -> zbus::fdo::Result<String> {
+            self.calls
+                .push(format!("ResolveConflict {account_id} {area} {id} {choice}"));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            Ok("{}".to_string())
+        }
     }
 
     /// Los contactos salen del sincronizador comprobado, de la cuenta pedida,
@@ -1082,5 +1320,208 @@ mod tests {
 
         assert!(calls.taken().is_empty(), "{:?}", calls.taken());
         assert!(!crate::commands::denied_by_store(&error), "{error}");
+    }
+
+    // ── El ETag y el estado de cada tarjeta ──────────────────────────────────
+
+    fn stamped(id: &str, etag: &str, sync_state: SyncState) -> StoredCard {
+        StoredCard {
+            id: id.into(),
+            address_book_id: "1".into(),
+            href: format!("https://x/a/{id}.vcf"),
+            vcard: named(1),
+            etag: etag.into(),
+            sync_state,
+        }
+    }
+
+    /// Cada contacto sale con el ETag y el estado de su tarjeta: es lo que deja
+    /// editarla (`canEdit` pide ETag) y pintar la insignia «sin sincronizar».
+    #[test]
+    fn cada_contacto_sale_con_el_etag_y_el_estado_de_su_tarjeta() {
+        let contacts = contacts_from("a1", vec![stamped("42", "etag-1", SyncState::Pending)]);
+        assert_eq!(contacts.len(), 1);
+        assert_eq!(contacts[0].etag, "etag-1");
+        assert_eq!(contacts[0].sync_state, SyncState::Pending);
+    }
+
+    /// Una tarjeta al día sin ETag —una creación local sin confirmar— sale sin
+    /// ETag y al día: la ventana la deja «pendiente de sincronizar» y no se puede
+    /// editar hasta que suba.
+    #[test]
+    fn una_creacion_local_sin_etag_sale_sin_etag_y_al_dia() {
+        let contacts = contacts_from("a1", vec![stamped("9", "", SyncState::Pending)]);
+        assert_eq!(contacts[0].etag, "");
+        assert_eq!(contacts[0].sync_state, SyncState::Pending);
+    }
+
+    /// El ETag y el estado son del recurso: de un recurso con varias tarjetas
+    /// sólo la primera los lleva, porque las demás no tienen fila propia que
+    /// editar ni op propia que esté en conflicto.
+    #[test]
+    fn solo_la_primera_tarjeta_de_un_recurso_lleva_etag_y_estado() {
+        let two = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nEND:VCARD\r\n\
+                   BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Bruno\r\nEND:VCARD\r\n";
+        let stored = StoredCard {
+            id: "7".into(),
+            address_book_id: "1".into(),
+            href: "https://x/todos.vcf".into(),
+            vcard: two.into(),
+            etag: "etag-r".into(),
+            sync_state: SyncState::Conflict,
+        };
+        let contacts = contacts_from("a1", vec![stored]);
+        assert_eq!(contacts.len(), 2);
+        assert_eq!(contacts[0].etag, "etag-r");
+        assert_eq!(contacts[0].sync_state, SyncState::Conflict);
+        assert_eq!(contacts[1].etag, "", "la segunda no tiene fila propia");
+        assert_eq!(contacts[1].sync_state, SyncState::Synced);
+    }
+
+    /// Una tarjeta sin el campo `sync_state` —un almacén viejo— se lee igual y
+    /// cae en `synced`, en vez de romper la lectura entera.
+    #[test]
+    fn una_tarjeta_sin_estado_cae_en_synced() {
+        let json = r#"{"id":"1","address_book_id":"1","href":"h","vcard":"v"}"#;
+        let stored: StoredCard = serde_json::from_str(json).unwrap();
+        assert_eq!(stored.sync_state, SyncState::Synced);
+        assert_eq!(stored.etag, "");
+    }
+
+    /// `SyncState` viaja a la ventana en minúscula, la misma forma que manda el
+    /// almacén: la ventana lo lee como `"pending"` / `"conflict"`.
+    #[test]
+    fn el_estado_se_serializa_en_minuscula() {
+        assert_eq!(
+            serde_json::to_value(SyncState::Pending).unwrap(),
+            serde_json::json!("pending")
+        );
+        assert_eq!(
+            serde_json::to_value(SyncState::Conflict).unwrap(),
+            serde_json::json!("conflict")
+        );
+    }
+
+    // ── Los conflictos ───────────────────────────────────────────────────────
+
+    /// `ListConflicts` contesta `{items:[{id,op,summary,has_server_copy}]}`: se
+    /// lee, y sin `items` es un error, no una lista vacía que parezca «no hay».
+    #[test]
+    fn se_lee_la_respuesta_de_list_conflicts() {
+        let json = r#"{"items":[{"id":"7","op":"put","summary":"Ana","has_server_copy":true}]}"#;
+        let items = parse_conflict_list(json).unwrap();
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0].id, "7");
+        assert_eq!(items[0].op, "put");
+        assert!(items[0].has_server_copy);
+
+        assert!(
+            parse_conflict_list("[]").is_err(),
+            "una lista cruda no sirve"
+        );
+        assert!(parse_conflict_list("no es json").is_err());
+        // Sin conflictos sí es una respuesta válida: la lista vacía.
+        assert!(parse_conflict_list(r#"{"items":[]}"#).unwrap().is_empty());
+    }
+
+    /// `GetConflict` contesta la comparación; el crudo local puede faltar (un
+    /// borrado) y la copia del servidor puede no estar todavía.
+    #[test]
+    fn se_lee_la_respuesta_de_get_conflict() {
+        let json = r#"{"id":"7","op":"put","local":"VCARD-LOCAL","server":"VCARD-SRV",
+                       "server_etag":"e","server_unavailable":false}"#;
+        let detail = parse_conflict_detail(json).unwrap();
+        assert_eq!(detail.id, "7");
+        assert_eq!(detail.local.as_deref(), Some("VCARD-LOCAL"));
+        assert_eq!(detail.server.as_deref(), Some("VCARD-SRV"));
+        assert!(!detail.server_unavailable);
+
+        // Un borrado no trae crudo local; la copia del servidor puede faltar.
+        let borrado = r#"{"id":"7","op":"delete","server_unavailable":true}"#;
+        let detail = parse_conflict_detail(borrado).unwrap();
+        assert_eq!(detail.op, "delete");
+        assert!(detail.local.is_none(), "un borrado no tiene crudo local");
+        assert!(detail.server.is_none());
+        assert!(detail.server_unavailable);
+
+        assert!(parse_conflict_detail("no es json").is_err());
+    }
+
+    /// La elección viaja al servicio con el texto que espera.
+    #[test]
+    fn la_eleccion_viaja_como_la_espera_el_servicio() {
+        assert_eq!(ConflictChoice::KeepLocal.as_str(), "keep_local");
+        assert_eq!(ConflictChoice::TakeServer.as_str(), "take_server");
+    }
+
+    /// Los conflictos se leen y se resuelven por el cliente comprobado del
+    /// plugin, con el área de contactos.
+    #[tokio::test]
+    async fn los_conflictos_se_leen_y_resuelven_por_el_cliente_del_plugin() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let items = list_conflicts(&test_bus::client(true), "nube", CONTACTS_AREA)
+            .await
+            .unwrap();
+        assert_eq!(items[0].id, "7");
+
+        let detail = get_conflict(&test_bus::client(true), "nube", CONTACTS_AREA, "7")
+            .await
+            .unwrap();
+        assert_eq!(detail.id, "7");
+        assert!(detail.local.is_some());
+        assert!(detail.server.is_some());
+
+        resolve_conflict(
+            &test_bus::client(true),
+            "nube",
+            CONTACTS_AREA,
+            "7",
+            ConflictChoice::KeepLocal,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(
+            calls.taken(),
+            [
+                "ListConflicts nube contacts".to_string(),
+                "GetConflict nube contacts 7".to_string(),
+                "ResolveConflict nube contacts 7 keep_local".to_string(),
+            ]
+        );
+    }
+
+    /// Un «no» de la persona a los métodos de conflicto llega como un «no», con
+    /// el nombre del error de D-Bus adentro, igual que las demás lecturas.
+    #[tokio::test]
+    async fn un_no_a_los_conflictos_se_lee_como_un_no() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore {
+            deny: true,
+            ..Default::default()
+        };
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = list_conflicts(&test_bus::client(true), "nube", CONTACTS_AREA)
+            .await
+            .unwrap_err();
+        assert!(crate::commands::denied_by_store(&error), "{error}");
+
+        let error = resolve_conflict(
+            &test_bus::client(true),
+            "nube",
+            CONTACTS_AREA,
+            "7",
+            ConflictChoice::TakeServer,
+        )
+        .await
+        .unwrap_err();
+        assert!(crate::commands::denied_by_store(&error), "{error}");
     }
 }

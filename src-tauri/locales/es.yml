@@ -140,6 +140,33 @@ sync:
     too_soon: Se acaba de actualizar; en un momento se puede de nuevo
     unavailable: El servicio de sincronización no está funcionando
     failed: No se pudo pedir la sincronización
+  # La insignia «sin sincronizar» de cada contacto, en la lista y en la ficha.
+  # Ver `src/tools/sync-badge.ts`.
+  badge:
+    pending: Sin sincronizar
+    pendingTitle: Hay un cambio sin subir; se sincroniza cuando se pueda
+    conflict: Conflicto
+    conflictTitle: El cambio chocó con el servidor; hay que elegir cuál queda
+# Resolver un conflicto: un cambio local que chocó con el servidor. El banner en
+# la ficha y la comparación «mantener la mía / tomar la del servidor».
+conflict:
+  # El banner de la ficha.
+  bannerTitle: Este contacto tiene un conflicto
+  bannerBody: Lo cambiaste acá y también cambió en el servidor. Elegí cuál versión queda.
+  resolve: Resolver
+  # El diálogo de la comparación.
+  title: Resolver el conflicto
+  explain: Compará las dos versiones y elegí cuál queda. La otra se descarta.
+  loading: Trayendo la comparación…
+  mine: La mía
+  theirs: La del servidor
+  mineDelete: Lo borraste acá.
+  serverUnavailable: Todavía no hay copia del servidor para comparar.
+  retry: Reintentar
+  keepMine: Mantener la mía
+  takeTheirs: Tomar la del servidor
+  denied: No diste permiso para cambiar los contactos guardados en el sistema.
+  error: No se pudo resolver el conflicto.
 # El estado de «sin permiso» para leer el almacén, con el botón que vuelve a
 # abrir el diálogo. Ver `src/tools/store-permission.ts`.
 permiso:
