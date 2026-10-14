@@ -86,3 +86,13 @@ sync:
     too_soon: Just refreshed; you can refresh again in a moment
     unavailable: The sync service is not running
     failed: Could not request a sync
+# El estado de «sin permiso» para leer el almacén, con el botón que vuelve a
+# abrir el diálogo. Ver `src/tools/store-permission.ts`.
+permiso:
+  titulo: No permission to see contacts
+  descripcion: You have not allowed reading the contacts stored on the system. Ask for it again to bring the dialog back.
+  pedir: Ask for permission again
+  # Cuando no se pudo ni volver a pedir el permiso.
+  limite: You just asked a moment ago; wait a minute and try again.
+  denegado: This permission cannot be requested again.
+  error: Could not ask for the permission again.

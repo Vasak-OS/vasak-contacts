@@ -13,6 +13,34 @@ use crate::accounts::{self, CuentaConLibreta};
 use crate::carddav;
 use crate::vcard::Contact;
 
+/// El recurso del almacén que cubre los contactos. Es el mismo nombre que usa
+/// `vasak-accounts` (`sync/src/access.rs`: `CONTACTS_RESOURCE`) y con el que
+/// `vasak-permissions` guarda la decisión: tiene que coincidir letra por letra,
+/// o volver a pedirlo reabriría el diálogo de otra cosa —o de nada—.
+const CONTACTS_RESOURCE: &str = "store.contacts";
+
+/// Lo que devuelve [`contactos_de_la_cuenta`] cuando la persona le dijo que no
+/// al almacén. **No se traduce**: es una marca que mira la ventana para pintar
+/// el estado de «sin permiso» con su botón, y el texto lo pone ella en el
+/// idioma de la sesión (`src/tools/store-permission.ts`). Una frase traducida
+/// acá saldría en el idioma con el que se compiló el programa, no en el de quien
+/// mira, y obligaría a la ventana a reconocerla por su contenido.
+pub(crate) const STORE_PERMISSION_DENIED: &str = "store-permission-denied";
+
+/// El servicio de permisos, en el **bus de sistema** (`vasak-permissions`).
+const PERMISSIONS_SERVICE: &str = "ar.net.vasak.os.Permissions";
+const PERMISSIONS_PATH: &str = "/ar/net/vasak/os/Permissions";
+const PERMISSIONS_INTERFACE: &str = "ar.net.vasak.os.Permissions";
+/// Vuelve a abrir el diálogo del permiso de quien llama. Ver `vasak-permissions`
+/// (`vasak_permissions_protocol::REQUEST_AGAIN_METHOD`).
+const REQUEST_AGAIN_METHOD: &str = "RequestAgain";
+
+/// Las marcas de error de [`request_store_permission_again`], que la ventana
+/// traduce. No se traducen acá por lo mismo que [`STORE_PERMISSION_DENIED`].
+pub(crate) const REASK_LIMIT: &str = "reask-limit-exceeded";
+pub(crate) const REASK_DENIED: &str = "reask-access-denied";
+pub(crate) const REASK_FAILED: &str = "reask-failed";
+
 /// Lo que se pudo leer de una cuenta, y lo que no.
 ///
 /// Las dos cosas juntas, como en el calendario y por lo mismo: una libreta
@@ -54,13 +82,7 @@ pub async fn contactos_de_la_cuenta(
         // Si la persona le dijo que no al almacén, no se le vuelve a preguntar
         // por la puerta de al lado: ir al servidor pediría `account.contacts`,
         // que entrega el token y es más que lo que acaba de negar.
-        Err(e) if denied_by_store(&e) => {
-            return Err(
-                "no diste permiso para leer los contactos del sistema; se cambia en \
-                 Configuración → Privacidad y seguridad"
-                    .into(),
-            )
-        }
+        Err(e) if denied_by_store(&e) => return Err(STORE_PERMISSION_DENIED.into()),
         Err(e) => eprintln!("[contactos] el almacén no contestó, se va al servidor: {e}"),
     }
     let credencial = accounts::credencial_de(&account_id).await?;
@@ -97,6 +119,69 @@ pub async fn contactos_de_la_cuenta(
 /// servidor: eso pediría un permiso más fuerte que el que acaba de negar.
 pub(crate) fn denied_by_store(error: &str) -> bool {
     error.contains("org.freedesktop.DBus.Error.AccessDenied")
+}
+
+/// Vuelve a pedir el permiso para leer los contactos del almacén.
+///
+/// Llama a `RequestAgain` de `vasak-permissions` en el **bus de sistema**. Ese
+/// método olvida **sólo** la decisión de esta ventana sobre `store.contacts`
+/// —nunca concede—, así que el próximo intento de leer vuelve a abrir el
+/// diálogo. Quién llama lo decide el servicio por la conexión, no un parámetro:
+/// esta ventana sólo puede re-pedirse el permiso **a sí misma**, y hay un techo
+/// de uno por minuto contra la fatiga de permisos.
+///
+/// Devuelve una marca que la ventana traduce: [`REASK_LIMIT`] si se pidió hace
+/// muy poco, [`REASK_DENIED`] si el recurso no es suyo, y [`REASK_FAILED`] para
+/// lo demás (el servicio caído, el bus cerrado).
+#[tauri::command]
+pub async fn request_store_permission_again() -> Result<(), String> {
+    let connection = zbus::Connection::system().await.map_err(|e| {
+        eprintln!(
+            "[contactos] no se pudo abrir el bus del sistema para volver a pedir el permiso: {e}"
+        );
+        REASK_FAILED.to_string()
+    })?;
+    connection
+        .call_method(
+            Some(PERMISSIONS_SERVICE),
+            PERMISSIONS_PATH,
+            Some(PERMISSIONS_INTERFACE),
+            REQUEST_AGAIN_METHOD,
+            &(CONTACTS_RESOURCE,),
+        )
+        .await
+        .map(|_| ())
+        .map_err(|e| {
+            let code = reask_error_code(method_error_name(&e));
+            // Lo esperado —el techo y el fuera de alcance— ya lo dice la ventana;
+            // lo demás se anota, que es un fallo de verdad del servicio o del bus.
+            if code == REASK_FAILED {
+                eprintln!("[contactos] no se pudo volver a pedir el permiso del almacén: {e}");
+            }
+            code.to_string()
+        })
+}
+
+/// El nombre del error de D-Bus de un error de `zbus`, si lo lleva. Un error
+/// que no viene de un método (el bus cerrado, un tiempo agotado) no tiene
+/// nombre y cae en [`REASK_FAILED`].
+fn method_error_name(error: &zbus::Error) -> Option<&str> {
+    match error {
+        zbus::Error::MethodError(name, _, _) => Some(name.as_str()),
+        _ => None,
+    }
+}
+
+/// La marca para la ventana a partir del nombre del error de D-Bus de
+/// `RequestAgain`. Pura y sobre el nombre —no sobre el `zbus::Error`, que lleva
+/// un `Message` imposible de armar en una prueba—, para poder probar el mapeo
+/// sin un bus.
+pub(crate) fn reask_error_code(error_name: Option<&str>) -> &'static str {
+    match error_name {
+        Some("org.freedesktop.DBus.Error.LimitsExceeded") => REASK_LIMIT,
+        Some("org.freedesktop.DBus.Error.AccessDenied") => REASK_DENIED,
+        _ => REASK_FAILED,
+    }
 }
 
 #[cfg(test)]
@@ -173,5 +258,28 @@ mod tests {
             "ListAddressBooks: org.freedesktop.DBus.Error.ServiceUnknown: no está"
         ));
         assert!(!denied_by_store("respuesta inválida de ListContactCards"));
+    }
+
+    /// Cada error de `RequestAgain` se traduce a la marca que la ventana sabe
+    /// pintar: el techo y el fuera de alcance tienen su mensaje; lo demás cae en
+    /// el genérico, nunca en algo crudo.
+    #[test]
+    fn el_error_de_volver_a_pedir_se_mapea_a_su_marca() {
+        assert_eq!(
+            reask_error_code(Some("org.freedesktop.DBus.Error.LimitsExceeded")),
+            REASK_LIMIT
+        );
+        assert_eq!(
+            reask_error_code(Some("org.freedesktop.DBus.Error.AccessDenied")),
+            REASK_DENIED
+        );
+        // Un error con otro nombre no es ni el techo ni el fuera de alcance.
+        assert_eq!(
+            reask_error_code(Some("org.freedesktop.DBus.Error.ServiceUnknown")),
+            REASK_FAILED
+        );
+        // Y un error que no viene de un método —el bus cerrado— tampoco tiene
+        // nombre que mirar.
+        assert_eq!(reask_error_code(None), REASK_FAILED);
     }
 }

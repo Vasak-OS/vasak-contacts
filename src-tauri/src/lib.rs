@@ -44,6 +44,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::listar_cuentas,
             commands::contactos_de_la_cuenta,
+            commands::request_store_permission_again,
             photos::contact_photo,
         ])
         .setup(|app| {

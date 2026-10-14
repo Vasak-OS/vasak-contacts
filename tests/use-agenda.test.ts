@@ -17,8 +17,12 @@ import { type EffectScope, effectScope } from 'vue';
 import { useAgenda } from '@/composables/use-agenda';
 import { emptyContact } from '@/tools/address-book';
 import { bookKey, loadHiddenBooks } from '@/tools/library-filter';
+import { REASK_LIMIT, STORE_PERMISSION_DENIED } from '@/tools/store-permission';
 import AddressBookView from '@/views/AddressBookView.vue';
 import { answerCommand, emit, invokedCommands, listenerCount, olvidarTodo } from './dobles';
+
+/** El comando que vuelve a abrir el diálogo del permiso del almacén. */
+const REQUEST_AGAIN = 'request_store_permission_again';
 
 /** El pedido de «Actualizar» del plugin del almacén. */
 const REQUEST_SYNC = 'plugin:vsk-store|request_sync';
@@ -346,5 +350,115 @@ describe('elegir qué libretas se ven y filtrar por categoría', () => {
 
 		clearCategories();
 		expect(visibles.value).toHaveLength(3);
+	});
+});
+
+describe('sin permiso para leer el almacén', () => {
+	/** Las cuentas están, pero el almacén le dice que no a leer los contactos. */
+	function answerDenied() {
+		answerCommand('listar_cuentas', () => ACCOUNTS);
+		answerCommand('contactos_de_la_cuenta', () => {
+			throw STORE_PERMISSION_DENIED;
+		});
+	}
+
+	test('el «no» del almacén deja la agenda en «sin permiso», sin aviso por cuenta', async () => {
+		answerDenied();
+		const { sinPermiso, contactos, avisos, cargar } = agenda();
+
+		await cargar();
+
+		expect(sinPermiso.value).toBe(true);
+		expect(contactos.value).toEqual([]);
+		// El almacén es uno solo: no se repite el mismo «no» por cada cuenta.
+		expect(avisos.value).toEqual([]);
+	});
+
+	test('volver a pedir el permiso lo pide y relee; con el permiso dado, se apaga', async () => {
+		answerDenied();
+		answerCommand(REQUEST_AGAIN, () => undefined);
+		const { sinPermiso, contactos, cargar, pedirPermisoDeNuevo } = agenda();
+		await cargar();
+		expect(sinPermiso.value).toBe(true);
+
+		// La persona concede: ahora el almacén contesta.
+		answerCommand('contactos_de_la_cuenta', (args) => ({
+			libretas: [],
+			contactos: String(args?.accountId) === 'a1' ? [ANA] : [BRUNO],
+			fallos: [],
+		}));
+		invokedCommands.length = 0;
+
+		const error = await pedirPermisoDeNuevo();
+
+		expect(error).toBeNull();
+		// Pidió volver a abrir el diálogo y después releyó.
+		expect(commands()).toContain(REQUEST_AGAIN);
+		expect(commands()).toContain('listar_cuentas');
+		expect(sinPermiso.value).toBe(false);
+		expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez', 'Bruno Álvarez']);
+	});
+
+	test('si no se pudo ni pedir, devuelve la marca y no relee', async () => {
+		answerDenied();
+		answerCommand(REQUEST_AGAIN, () => {
+			throw REASK_LIMIT;
+		});
+		const { sinPermiso, cargar, pedirPermisoDeNuevo } = agenda();
+		await cargar();
+		invokedCommands.length = 0;
+
+		const error = await pedirPermisoDeNuevo();
+
+		expect(error).toBe(REASK_LIMIT);
+		// Sólo intentó pedir: sin reintento, la agenda sigue sin permiso.
+		expect(commands()).toEqual([REQUEST_AGAIN]);
+		expect(sinPermiso.value).toBe(true);
+	});
+
+	test('la vista muestra el botón, y al apretarlo pide y relee', async () => {
+		answerDenied();
+		answerCommand(REQUEST_AGAIN, () => undefined);
+		mounted = mount(AddressBookView, {
+			attachTo: document.body.appendChild(document.createElement('div')),
+		});
+		await flushPromises();
+
+		const boton = mounted
+			.findAllComponents(ActionButton)
+			.find((b) => b.props('label') === 'permiso.pedir');
+		expect(boton).toBeDefined();
+
+		// La persona concede antes de apretar.
+		answerCommand('contactos_de_la_cuenta', () => ({ libretas: [], contactos: [ANA], fallos: [] }));
+		invokedCommands.length = 0;
+
+		await boton?.trigger('click');
+		await flushPromises();
+
+		expect(commands()).toContain(REQUEST_AGAIN);
+		expect(commands()).toContain('listar_cuentas');
+		expect(mounted.text()).toContain('Ana Pérez');
+	});
+
+	test('la vista dice por qué no se pudo volver a pedir', async () => {
+		answerDenied();
+		answerCommand(REQUEST_AGAIN, () => {
+			throw REASK_LIMIT;
+		});
+		mounted = mount(AddressBookView, {
+			attachTo: document.body.appendChild(document.createElement('div')),
+		});
+		await flushPromises();
+
+		const boton = mounted
+			.findAllComponents(ActionButton)
+			.find((b) => b.props('label') === 'permiso.pedir');
+		await boton?.trigger('click');
+		await flushPromises();
+
+		// Sin catálogo, `t()` devuelve la clave: alcanza para ver que el aviso del
+		// techo se mostró y no el genérico.
+		expect(mounted.text()).toContain('permiso.limite');
 	});
 });

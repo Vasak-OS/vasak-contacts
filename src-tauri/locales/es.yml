@@ -102,3 +102,13 @@ sync:
     too_soon: Se acaba de actualizar; en un momento se puede de nuevo
     unavailable: El servicio de sincronización no está funcionando
     failed: No se pudo pedir la sincronización
+# El estado de «sin permiso» para leer el almacén, con el botón que vuelve a
+# abrir el diálogo. Ver `src/tools/store-permission.ts`.
+permiso:
+  titulo: Sin permiso para ver los contactos
+  descripcion: No diste permiso para leer los contactos guardados en el sistema. Volvé a pedirlo para que aparezca el diálogo.
+  pedir: Pedir permiso de nuevo
+  # Cuando no se pudo ni volver a pedir el permiso.
+  limite: Ya lo pediste hace un momento; esperá un minuto y probá de nuevo.
+  denegado: No se puede volver a pedir este permiso.
+  error: No se pudo volver a pedir el permiso.
