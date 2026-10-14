@@ -50,7 +50,10 @@ jobs:
       #   build-essential        el compilador de C de los `-sys`
       #   dbus-daemon            no es del grafo sino de las pruebas: las del
       #                          almacén levantan un bus privado por prueba
-      #                          (`src-tauri/src/test_bus.rs`)
+      #                          (`src-tauri/src/test_bus.rs`) para comprobar que
+      #                          la lectura rechaza a un impostor del almacén; sin
+      #                          él esas pruebas se omiten en vez de cubrir el
+      #                          camino verificado (ver `vasak-accounts#77`)
       paquetes_rust: >-
         libwebkit2gtk-4.1-dev
         lld

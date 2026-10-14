@@ -4528,6 +4528,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "vasak-accounts-store-client"
+version = "0.20.0"
+source = "git+https://github.com/Vasak-OS/vasak-accounts?branch=main#9fd17b026619c3222f6a43fde628599d7e550c2c"
+dependencies = [
+ "zbus",
+]
+
+[[package]]
 name = "vasak-contacts"
 version = "0.13.0"
 dependencies = [
@@ -4553,6 +4561,7 @@ dependencies = [
  "tauri-plugin-vsk-store",
  "tokio",
  "url",
+ "vasak-accounts-store-client",
  "zbus",
 ]
 

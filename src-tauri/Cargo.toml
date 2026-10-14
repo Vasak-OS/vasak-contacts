@@ -35,6 +35,15 @@ gtk = "0.18"
 tauri-plugin-vsk-journal = "2"
 # Para hablar con vasak-accounts, que es de donde salen las libretas.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+# Comprueba que el dueño del nombre del almacén sea de verdad el servicio
+# instalado antes de confiar en lo que conteste —y dirige las llamadas al nombre
+# único verificado—. Ver `vasak-accounts#77` y `store.rs`.
+#
+# PENDIENTE: va por git a `main` de vasak-accounts mientras el crate no esté
+# publicado en crates.io. En cuanto salga, esto pasa a
+# `vasak-accounts-store-client = "0.20"` y se refresca el `Cargo.lock`. Este PR
+# queda en borrador hasta entonces.
+vasak-accounts-store-client = { git = "https://github.com/Vasak-OS/vasak-accounts", branch = "main" }
 # El `StreamExt` de los avisos del almacén: zbus 5 ya no lo reexporta.
 futures-util = "0.3"
 # El cliente del almacén del sistema, compartido con mail, calendario y el
