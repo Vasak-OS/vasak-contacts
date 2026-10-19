@@ -101,4 +101,100 @@ mod tests {
         };
         assert_eq!(card_svg(&card), Err(QR_TOO_LONG.to_string()));
     }
+
+    /// Cuánto mide cada módulo en el `viewBox` que dibuja la caja `qrcode`.
+    const PX_POR_MODULO: usize = 8;
+
+    /// El lado, en módulos, que dice el `viewBox` del SVG (zona de silencio incluida).
+    fn lado_del_svg(svg: &str) -> usize {
+        let resto = svg.split("viewBox=\"0 0 ").nth(1).expect("sin viewBox");
+        let px: usize = resto.split(' ').next().unwrap().parse().unwrap();
+        assert_eq!(
+            px % PX_POR_MODULO,
+            0,
+            "el viewBox no es de módulos enteros: {px}"
+        );
+        px / PX_POR_MODULO
+    }
+
+    #[test]
+    fn el_tope_son_580_bytes_justos() {
+        assert!(qr_svg(&"a".repeat(580)).is_ok());
+        assert_eq!(qr_svg(&"a".repeat(581)), Err(QR_TOO_LONG.to_string()));
+    }
+
+    #[test]
+    fn el_tope_cuenta_bytes_y_no_letras() {
+        // 300 letras pero 600 bytes.
+        assert_eq!(qr_svg(&"é".repeat(300)), Err(QR_TOO_LONG.to_string()));
+    }
+
+    #[test]
+    fn una_tarjeta_de_blancos_no_genera_codigo() {
+        let card = QrCard {
+            name: "  ".into(),
+            phones: vec![" ".into()],
+            email: Some("".into()),
+            organization: "\t".into(),
+        };
+        assert_eq!(card_svg(&card), Err(QR_EMPTY.to_string()));
+    }
+
+    #[test]
+    fn una_tarjeta_larga_pero_posible_entra() {
+        let card = QrCard {
+            name: "María de los Ángeles Pérez García de la Fuente y Rodríguez".into(),
+            phones: vec!["+54 9 11 5555-5555".into(), "+54 9 11 4444-4444".into()],
+            email: Some("maria.de.los.angeles.perez.garcia@subdominio.ejemplo-largo.com.ar".into()),
+            organization: "Fundación Vasak Group para el Desarrollo de Software Libre".into(),
+        };
+        assert!(card_svg(&card).is_ok());
+    }
+
+    /// Con corrección `M`, 580 bytes caen en la versión 19 (93×93 módulos; la 17
+    /// aguanta 458). La zona de silencio suma cuatro módulos por lado. Con
+    /// corrección más alta el mismo texto pasa de esa versión y deja de leerse
+    /// desde la pantalla.
+    #[test]
+    fn el_codigo_mas_grande_no_pasa_de_la_version_19() {
+        let lado = lado_del_svg(&qr_svg(&"a".repeat(580)).unwrap());
+        assert!(lado <= 93 + 8, "el código de 580 bytes mide {lado} módulos");
+    }
+
+    #[test]
+    fn el_codigo_lleva_zona_de_silencio_de_cuatro_modulos() {
+        let texto = "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nEND:VCARD\r\n";
+        let sin_borde = QrCode::with_error_correction_level(texto, EcLevel::M)
+            .unwrap()
+            .width();
+        assert_eq!(lado_del_svg(&qr_svg(texto).unwrap()), sin_borde + 8);
+    }
+
+    #[test]
+    fn la_correccion_es_m() {
+        // Un texto en el que L y M dan versiones distintas, o la prueba no distingue.
+        let texto = "a".repeat(300);
+        let con = |nivel| {
+            QrCode::with_error_correction_level(&texto, nivel)
+                .unwrap()
+                .width()
+        };
+        assert_ne!(con(EcLevel::L), con(EcLevel::M));
+        assert_eq!(lado_del_svg(&qr_svg(&texto).unwrap()), con(EcLevel::M) + 8);
+    }
+
+    #[test]
+    fn lo_que_escribe_la_persona_no_llega_al_svg() {
+        // El SVG se mete en la ventana con `v-html`: nada del texto puede viajar en él.
+        let card = QrCard {
+            name: "<script>alert(1)</script><img src=x onerror=alert(1)>".into(),
+            ..Default::default()
+        };
+        let svg = card_svg(&card).unwrap();
+        assert!(
+            !svg.contains("script") && !svg.contains("onerror") && !svg.contains("<img"),
+            "{svg}"
+        );
+        assert!(!svg.contains("alert"), "{svg}");
+    }
 }

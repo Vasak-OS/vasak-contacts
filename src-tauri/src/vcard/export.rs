@@ -184,4 +184,198 @@ mod tests {
         .is_empty());
         assert!(!ana().is_empty());
     }
+
+    /// Los nombres de propiedad de una vCard, en orden: lo que un lector de agendas
+    /// vería como líneas distintas.
+    fn propiedades(vcard: &str) -> Vec<String> {
+        vcard
+            .split("\r\n")
+            .filter(|l| !l.is_empty())
+            .map(|l| l.split(':').next().unwrap_or("").to_string())
+            .collect()
+    }
+
+    /// Lo que cada campo puede traer de hostil: un salto de línea de cada clase y
+    /// después una propiedad que la persona nunca marcó.
+    const HOSTILES: [&str; 5] = [
+        "x\r\nTEL:999",
+        "x\nTEL:999",
+        "x\rTEL:999",
+        "x\u{85}TEL:999",
+        "x\r\nEND:VCARD\r\nBEGIN:VCARD\r\nFN:otro",
+    ];
+
+    #[test]
+    fn ningun_campo_cuela_una_propiedad() {
+        for hostil in HOSTILES {
+            let casos = [
+                (
+                    "nombre",
+                    QrCard {
+                        name: hostil.into(),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "organización",
+                    QrCard {
+                        name: "Ana".into(),
+                        organization: hostil.into(),
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "teléfono",
+                    QrCard {
+                        name: "Ana".into(),
+                        phones: vec![hostil.into()],
+                        ..Default::default()
+                    },
+                ),
+                (
+                    "correo",
+                    QrCard {
+                        name: "Ana".into(),
+                        email: Some(hostil.into()),
+                        ..Default::default()
+                    },
+                ),
+            ];
+            for (campo, card) in casos {
+                let props = propiedades(&reduced_vcard(&card));
+                // Sólo el marco, el nombre y a lo sumo la propiedad del campo probado.
+                assert!(
+                    props.iter().all(|p| [
+                        "BEGIN", "VERSION", "FN", "N", "ORG", "TEL", "EMAIL", "END"
+                    ]
+                    .contains(&p.as_str())),
+                    "{campo} con {hostil:?} coló {props:?}"
+                );
+                assert!(props.len() <= 7, "{campo} con {hostil:?} coló {props:?}");
+                assert_eq!(
+                    props.iter().filter(|p| *p == "TEL").count(),
+                    card.phones.len(),
+                    "{campo} con {hostil:?}"
+                );
+                assert_eq!(
+                    props.iter().filter(|p| *p == "END").count(),
+                    1,
+                    "{campo} con {hostil:?}"
+                );
+                assert_eq!(
+                    props.iter().filter(|p| *p == "BEGIN").count(),
+                    1,
+                    "{campo} con {hostil:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn los_saltos_de_linea_son_siempre_los_del_marco() {
+        let out = reduced_vcard(&QrCard {
+            name: "a\r\nb\nc\rd".into(),
+            ..Default::default()
+        });
+        // Quitados los `\r\n` del marco no queda ningún salto suelto.
+        assert!(!out.replace("\r\n", "").contains(['\r', '\n']), "{out:?}");
+    }
+
+    #[test]
+    fn los_caracteres_de_control_se_pierden() {
+        let out = reduced_vcard(&QrCard {
+            name: "A\u{0}\u{7}\u{1b}\u{7f}\u{85}B".into(),
+            ..Default::default()
+        });
+        assert!(out.contains("FN:AB\r\n"), "{out:?}");
+    }
+
+    #[test]
+    fn la_barra_invertida_se_escapa_antes_que_los_separadores() {
+        // `a\;b` son tres caracteres de la persona: la barra, el `;` y la `b`.
+        // Escapar la barra después duplicaría la que agrega el escape del `;`.
+        let out = reduced_vcard(&QrCard {
+            name: "a\\;b".into(),
+            ..Default::default()
+        });
+        assert!(out.contains("FN:a\\\\\\;b\r\n"), "{out:?}");
+    }
+
+    #[test]
+    fn el_telefono_y_el_correo_tambien_se_escapan() {
+        let out = reduced_vcard(&QrCard {
+            name: "Ana".into(),
+            phones: vec!["1;2,3".into()],
+            email: Some("a,b@x;y".into()),
+            ..Default::default()
+        });
+        assert!(out.contains("TEL:1\\;2\\,3\r\n"), "{out:?}");
+        assert!(out.contains("EMAIL:a\\,b@x\\;y\r\n"), "{out:?}");
+    }
+
+    #[test]
+    fn los_telefonos_vacios_no_ocupan_un_lugar_de_los_dos() {
+        let out = reduced_vcard(&QrCard {
+            name: "Ana".into(),
+            phones: vec![
+                "".into(),
+                "  ".into(),
+                "111".into(),
+                "222".into(),
+                "333".into(),
+            ],
+            ..Default::default()
+        });
+        assert!(
+            out.contains("TEL:111\r\n") && out.contains("TEL:222\r\n"),
+            "{out:?}"
+        );
+        assert!(!out.contains("TEL:333"), "{out:?}");
+    }
+
+    #[test]
+    fn un_correo_de_blancos_no_sale() {
+        let out = reduced_vcard(&QrCard {
+            name: "Ana".into(),
+            email: Some("   ".into()),
+            ..Default::default()
+        });
+        assert!(!out.contains("EMAIL"), "{out:?}");
+    }
+
+    #[test]
+    fn los_blancos_de_los_costados_no_viajan() {
+        let out = reduced_vcard(&QrCard {
+            name: "  Ana  ".into(),
+            email: Some(" a@x.com ".into()),
+            ..Default::default()
+        });
+        assert!(
+            out.contains("FN:Ana\r\n") && out.contains("EMAIL:a@x.com\r\n"),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn el_texto_que_no_es_ascii_llega_entero() {
+        let out = reduced_vcard(&QrCard {
+            name: "María Ñandú 日本 😀".into(),
+            ..Default::default()
+        });
+        assert!(out.contains("FN:María Ñandú 日本 😀\r\n"), "{out:?}");
+    }
+
+    #[test]
+    fn con_un_solo_correo_la_tarjeta_no_esta_vacia() {
+        assert!(!QrCard {
+            email: Some("a@x.com".into()),
+            ..Default::default()
+        }
+        .is_empty());
+        assert!(!QrCard {
+            phones: vec!["".into(), "111".into()],
+            ..Default::default()
+        }
+        .is_empty());
+    }
 }

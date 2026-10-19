@@ -831,4 +831,100 @@ END:VCARD
         assert!(roxmltree::Document::parse(&consulta_de_principal()).is_ok());
         assert!(roxmltree::Document::parse(&consulta_de_direccion_propia()).is_ok());
     }
+
+    /// Un `principal-address` con lo que el servidor quiera adentro del `href`.
+    fn con_direccion(href: &str) -> String {
+        format!(
+            r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
+  <d:response><d:href>/p/</d:href><d:propstat><d:prop>
+    <c:principal-address><d:href>{href}</d:href></c:principal-address>
+  </d:prop></d:propstat></d:response>
+</d:multistatus>"#
+        )
+    }
+
+    /// La credencial viaja a donde diga esta dirección, así que un servidor hostil
+    /// no puede mandar la tarjeta —ni el principal— a otro lado.
+    #[test]
+    fn una_direccion_que_sale_del_servidor_de_la_cuenta_no_se_propone() {
+        let largo = format!("/{}", "a".repeat(dav::MAX_HREF_BYTES));
+        for hostil in [
+            "//malo.ejemplo.com/ana.vcf",
+            "https://nube.ejemplo.com@malo.ejemplo.com/ana.vcf",
+            "https://usuario:clave@nube.ejemplo.com/ana.vcf",
+            "http://nube.ejemplo.com/ana.vcf",
+            "https://nube.ejemplo.com:8443/ana.vcf",
+            "javascript:alert(1)",
+            "file:///etc/passwd",
+            "data:text/plain,hola",
+            "",
+            "   ",
+            largo.as_str(),
+        ] {
+            assert_eq!(
+                direccion_propia_de(&con_direccion(hostil), &base()).unwrap(),
+                None,
+                "se propuso {hostil:?}"
+            );
+            let principal = format!(
+                r#"<d:multistatus xmlns:d="DAV:"><d:response><d:href>/</d:href><d:propstat><d:prop>
+                <d:current-user-principal><d:href>{hostil}</d:href></d:current-user-principal>
+                </d:prop></d:propstat></d:response></d:multistatus>"#
+            );
+            assert_eq!(
+                principal_de(&principal, &base()).unwrap(),
+                None,
+                "se siguió {hostil:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn una_direccion_del_mismo_servidor_con_blancos_y_fragmento_se_normaliza() {
+        let url = direccion_propia_de(&con_direccion("  /dav/ana.vcf#1 "), &base())
+            .unwrap()
+            .unwrap();
+        assert_eq!(url.as_str(), "https://nube.ejemplo.com/dav/ana.vcf");
+    }
+
+    /// La propiedad es `CARDDAV:principal-address`: la del mismo nombre en otro
+    /// espacio de nombres, o un `href` de otra propiedad, no cuentan.
+    #[test]
+    fn solo_vale_la_propiedad_del_espacio_de_nombres_de_carddav() {
+        let otro_espacio =
+            con_direccion("/dav/ana.vcf").replace("urn:ietf:params:xml:ns:carddav", "urn:otro");
+        assert_eq!(direccion_propia_de(&otro_espacio, &base()).unwrap(), None);
+
+        let en_dav =
+            con_direccion("/dav/ana.vcf").replace("c:principal-address", "d:principal-address");
+        assert_eq!(direccion_propia_de(&en_dav, &base()).unwrap(), None);
+
+        // El `href` de otra propiedad (`owner`) no es la dirección propia.
+        assert_eq!(direccion_propia_de(PRINCIPAL, &base()).unwrap(), None);
+    }
+
+    /// Una respuesta que no se entiende es un error —la ventana lo trata como «sin
+    /// propuesta»—, nunca un pánico ni una dirección inventada.
+    #[test]
+    fn una_respuesta_que_no_es_xml_o_trae_dtd_es_un_error() {
+        let bomba = r#"<?xml version="1.0"?>
+<!DOCTYPE d [<!ENTITY a "aaaaaaaaaa"><!ENTITY b "&a;&a;&a;&a;&a;&a;&a;&a;">]>
+<d:multistatus xmlns:d="DAV:"><d:response><d:href>&b;</d:href></d:response></d:multistatus>"#;
+        for roto in [
+            "",
+            "<html>no es dav",
+            "<d:multistatus xmlns:d=\"DAV:\"><d:resp",
+            bomba,
+        ] {
+            assert!(
+                principal_de(roto, &base()).is_err(),
+                "principal_de aceptó {roto:?}"
+            );
+            assert!(
+                direccion_propia_de(roto, &base()).is_err(),
+                "direccion_propia_de aceptó {roto:?}"
+            );
+        }
+    }
 }
