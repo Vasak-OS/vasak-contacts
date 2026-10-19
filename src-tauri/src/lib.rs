@@ -46,6 +46,8 @@ pub fn run() {
             commands::listar_cuentas,
             commands::contactos_de_la_cuenta,
             commands::request_store_permission_again,
+            commands::request_mail_history_permission_again,
+            commands::mail_history,
             commands::save_contact,
             commands::delete_contact,
             commands::list_contact_conflicts,

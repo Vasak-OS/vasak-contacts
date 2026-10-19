@@ -467,6 +467,74 @@ pub async fn resolve_conflict(
     Ok(())
 }
 
+/// El recurso angosto del almacén para el historial de correo con una persona.
+/// Es el mismo nombre que `EMAIL_INTERACTIONS_RESOURCE` de `vasak-accounts`
+/// (`sync/src/access.rs`) y el que `vasak-permissions` deja en el alcance de esta
+/// aplicación: tiene que coincidir letra por letra.
+pub const MAIL_HISTORY_RESOURCE: &str = "store.email.interactions";
+
+/// Lo más que pide la ficha por dirección. El servicio acota por su lado; esto
+/// es para que una ventana que se porte mal no le pida miles de filas.
+pub const MAIL_HISTORY_MAX: u32 = 20;
+
+/// El largo máximo de una dirección de correo (RFC 5321).
+const MAX_ADDRESS_LEN: usize = 320;
+
+/// Un mensaje del historial con una dirección, como lo entrega `MessagesWith`:
+/// **sin cuerpo**. `date_ts` va en segundos (0 si el mensaje no traía fecha).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct MailInteraction {
+    pub uid: u64,
+    #[serde(default)]
+    pub date_ts: i64,
+    #[serde(default)]
+    pub subject: String,
+    #[serde(default)]
+    pub from_addr: String,
+}
+
+/// La dirección lista para preguntar, o `None` si no es una dirección que valga
+/// la pena mandar al servicio: vacía, sin arroba, demasiado larga o con
+/// caracteres de control.
+pub fn clean_address(address: &str) -> Option<String> {
+    let address = address.trim();
+    let valid = !address.is_empty()
+        && address.len() <= MAX_ADDRESS_LEN
+        && address.contains('@')
+        && !address.chars().any(char::is_control);
+    valid.then(|| address.to_string())
+}
+
+/// Lee la respuesta de `MessagesWith` y la acota a `limit` filas, por si el
+/// que contesta manda de más.
+pub fn parse_mail_history(json: &str, limit: u32) -> Result<Vec<MailInteraction>, String> {
+    let mut items: Vec<MailInteraction> = serde_json::from_str(json)
+        .map_err(|e| format!("respuesta inválida de MessagesWith: {e}"))?;
+    items.truncate(limit as usize);
+    Ok(items)
+}
+
+/// Los últimos `limit` mensajes intercambiados con `address` en una cuenta,
+/// más nuevos primero. Pide `store.email.interactions` (el servicio abre el
+/// diálogo la primera vez); un «no» vuelve con el nombre del error de D-Bus, que
+/// reconoce [`crate::commands::denied_by_store`].
+pub async fn read_mail_history(
+    store: &StoreClient,
+    account_id: &str,
+    address: &str,
+    limit: u32,
+) -> Result<Vec<MailInteraction>, String> {
+    let address = clean_address(address).ok_or("dirección de correo inválida")?;
+    let limit = limit.clamp(1, MAIL_HISTORY_MAX);
+    let json = call(
+        store,
+        "MessagesWith",
+        &(account_id, address.as_str(), limit),
+    )
+    .await?;
+    parse_mail_history(&json, limit)
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -1106,6 +1174,25 @@ mod tests {
             .to_string())
         }
 
+        fn messages_with(
+            &self,
+            account_id: String,
+            address: String,
+            limit: u32,
+        ) -> zbus::fdo::Result<String> {
+            self.calls
+                .push(format!("MessagesWith {account_id} {address} {limit}"));
+            if self.deny {
+                return Err(zbus::fdo::Error::AccessDenied("sin permiso".into()));
+            }
+            // Manda de más a propósito: acotar es cosa de quien lee.
+            let items: Vec<_> = (1..=30)
+                .rev()
+                .map(|n| serde_json::json!({ "uid": n, "date_ts": n * 10, "subject": "s", "from_addr": "a@x" }))
+                .collect();
+            Ok(serde_json::Value::Array(items).to_string())
+        }
+
         fn resolve_conflict(
             &self,
             account_id: String,
@@ -1523,5 +1610,119 @@ mod tests {
         .await
         .unwrap_err();
         assert!(crate::commands::denied_by_store(&error), "{error}");
+    }
+    /// La dirección que se manda al servicio: sin espacios, y las que no son una
+    /// dirección ni salen de la ventana.
+    #[test]
+    fn la_direccion_del_historial_se_limpia_o_se_descarta() {
+        assert_eq!(clean_address("  ana@x.com "), Some("ana@x.com".into()));
+        assert_eq!(clean_address(""), None);
+        assert_eq!(clean_address("ana"), None);
+        assert_eq!(clean_address("a\n@x.com"), None);
+        assert_eq!(clean_address(&format!("{}@x.com", "a".repeat(400))), None);
+    }
+
+    /// Lo que contesta `MessagesWith` se lee y se acota; sin cuerpo.
+    #[test]
+    fn el_historial_se_lee_y_se_acota() {
+        let json = r#"[{"uid":3,"date_ts":30,"subject":"c","from_addr":"a@x"},
+                       {"uid":2,"date_ts":20,"subject":"b","from_addr":"a@x"},
+                       {"uid":1,"date_ts":10,"subject":"a","from_addr":"a@x"}]"#;
+        let items = parse_mail_history(json, 2).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].uid, 3);
+        assert!(parse_mail_history("no es json", 2).is_err());
+    }
+
+    /// El historial sale del almacén por el cliente del plugin, con la cuenta, la
+    /// dirección ya limpia y el tope pedido; si manda de más, se acota.
+    #[tokio::test]
+    async fn el_historial_se_pide_al_almacen_con_la_direccion_limpia_y_acotado() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let items = read_mail_history(&test_bus::client(true), "nube", "  ana@x.com ", 5)
+            .await
+            .unwrap();
+
+        assert_eq!(items.len(), 5);
+        assert_eq!(items[0].uid, 30);
+        assert_eq!(calls.taken(), ["MessagesWith nube ana@x.com 5".to_string()]);
+    }
+
+    /// Una ventana que se porta mal no consigue más que `MAIL_HISTORY_MAX` filas,
+    /// ni un tope de cero: el servicio ni se entera de lo que pidió.
+    #[tokio::test]
+    async fn el_tope_del_historial_se_acota_antes_de_llegar_al_servicio() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let muchos = read_mail_history(&test_bus::client(true), "nube", "ana@x.com", 5000)
+            .await
+            .unwrap();
+        let cero = read_mail_history(&test_bus::client(true), "nube", "ana@x.com", 0)
+            .await
+            .unwrap();
+
+        assert_eq!(muchos.len(), MAIL_HISTORY_MAX as usize);
+        assert_eq!(cero.len(), 1);
+        assert_eq!(
+            calls.taken(),
+            [
+                format!("MessagesWith nube ana@x.com {MAIL_HISTORY_MAX}"),
+                "MessagesWith nube ana@x.com 1".to_string(),
+            ]
+        );
+    }
+
+    /// Lo que no es una dirección no llega al servicio.
+    #[tokio::test]
+    async fn una_direccion_invalida_no_llega_al_servicio() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore::default();
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = read_mail_history(&test_bus::client(true), "nube", "sin-arroba", 5)
+            .await
+            .unwrap_err();
+
+        assert!(calls.taken().is_empty(), "{:?}", calls.taken());
+        assert!(!crate::commands::denied_by_store(&error), "{error}");
+    }
+
+    /// Un «no» al historial llega como un «no», para que la ficha lo pinte como
+    /// «sin permiso» y no como un error.
+    #[tokio::test]
+    async fn un_no_al_historial_se_lee_como_un_no() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore {
+            deny: true,
+            ..Default::default()
+        };
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let error = read_mail_history(&test_bus::client(true), "nube", "ana@x.com", 5)
+            .await
+            .unwrap_err();
+
+        assert!(error.starts_with("MessagesWith: "), "{error}");
+        assert!(crate::commands::denied_by_store(&error), "{error}");
+    }
+
+    /// El borde del largo: 320 pasa, 321 no.
+    #[test]
+    fn la_direccion_del_historial_tiene_el_largo_de_la_rfc() {
+        let con = |largo: usize| format!("{}@x.com", "a".repeat(largo - "@x.com".len()));
+        assert!(clean_address(&con(320)).is_some());
+        assert!(clean_address(&con(321)).is_none());
     }
 }

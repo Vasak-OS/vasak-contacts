@@ -159,6 +159,18 @@ permiso:
   limite: You just asked a moment ago; wait a minute and try again.
   denegado: This permission cannot be requested again.
   error: Could not ask for the permission again.
+# The mail history on a contact's card (vasak-contacts#11).
+mailHistory:
+  title: Mail history
+  off: Show here the latest emails you exchanged with this person. They are looked up when the card opens and are not stored.
+  enable: Turn on
+  disable: Turn off
+  loading: Looking for emails…
+  empty: No emails with this person.
+  denied: Contacts is not allowed to see your mail history.
+  unavailable: Mail history is not available for this account.
+  from: "From {0}"
+  noSubject: (no subject)
 # The business card: the QR code and which card is the person's own
 # (vasak-contacts#10).
 qr:

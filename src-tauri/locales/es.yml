@@ -177,6 +177,18 @@ permiso:
   limite: Ya lo pediste hace un momento; esperá un minuto y probá de nuevo.
   denegado: No se puede volver a pedir este permiso.
   error: No se pudo volver a pedir el permiso.
+# El historial de correo de la ficha de un contacto (vasak-contacts#11).
+mailHistory:
+  title: Historial de correo
+  off: Mostrar acá los últimos correos que intercambiaste con esta persona. Se consultan al abrir la ficha y no se guardan.
+  enable: Activar
+  disable: Desactivar
+  loading: Buscando correos…
+  empty: No hay correos con esta persona.
+  denied: Contactos no tiene permiso para ver tu historial de correo.
+  unavailable: El historial de correo no está disponible para esta cuenta.
+  from: "De {0}"
+  noSubject: (sin asunto)
 # La tarjeta de presentación: el código QR y cuál es la tarjeta propia
 # (vasak-contacts#10).
 qr:
