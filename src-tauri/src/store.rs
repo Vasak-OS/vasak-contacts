@@ -467,6 +467,74 @@ pub async fn resolve_conflict(
     Ok(())
 }
 
+/// El recurso angosto del almacén para el historial de correo con una persona.
+/// Es el mismo nombre que `EMAIL_INTERACTIONS_RESOURCE` de `vasak-accounts`
+/// (`sync/src/access.rs`) y el que `vasak-permissions` deja en el alcance de esta
+/// aplicación: tiene que coincidir letra por letra.
+pub const MAIL_HISTORY_RESOURCE: &str = "store.email.interactions";
+
+/// Lo más que pide la ficha por dirección. El servicio acota por su lado; esto
+/// es para que una ventana que se porte mal no le pida miles de filas.
+pub const MAIL_HISTORY_MAX: u32 = 20;
+
+/// El largo máximo de una dirección de correo (RFC 5321).
+const MAX_ADDRESS_LEN: usize = 320;
+
+/// Un mensaje del historial con una dirección, como lo entrega `MessagesWith`:
+/// **sin cuerpo**. `date_ts` va en segundos (0 si el mensaje no traía fecha).
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+pub struct MailInteraction {
+    pub uid: u64,
+    #[serde(default)]
+    pub date_ts: i64,
+    #[serde(default)]
+    pub subject: String,
+    #[serde(default)]
+    pub from_addr: String,
+}
+
+/// La dirección lista para preguntar, o `None` si no es una dirección que valga
+/// la pena mandar al servicio: vacía, sin arroba, demasiado larga o con
+/// caracteres de control.
+pub fn clean_address(address: &str) -> Option<String> {
+    let address = address.trim();
+    let valid = !address.is_empty()
+        && address.len() <= MAX_ADDRESS_LEN
+        && address.contains('@')
+        && !address.chars().any(char::is_control);
+    valid.then(|| address.to_string())
+}
+
+/// Lee la respuesta de `MessagesWith` y la acota a `limit` filas, por si el
+/// que contesta manda de más.
+pub fn parse_mail_history(json: &str, limit: u32) -> Result<Vec<MailInteraction>, String> {
+    let mut items: Vec<MailInteraction> = serde_json::from_str(json)
+        .map_err(|e| format!("respuesta inválida de MessagesWith: {e}"))?;
+    items.truncate(limit as usize);
+    Ok(items)
+}
+
+/// Los últimos `limit` mensajes intercambiados con `address` en una cuenta,
+/// más nuevos primero. Pide `store.email.interactions` (el servicio abre el
+/// diálogo la primera vez); un «no» vuelve con el nombre del error de D-Bus, que
+/// reconoce [`crate::commands::denied_by_store`].
+pub async fn read_mail_history(
+    store: &StoreClient,
+    account_id: &str,
+    address: &str,
+    limit: u32,
+) -> Result<Vec<MailInteraction>, String> {
+    let address = clean_address(address).ok_or("dirección de correo inválida")?;
+    let limit = limit.clamp(1, MAIL_HISTORY_MAX);
+    let json = call(
+        store,
+        "MessagesWith",
+        &(account_id, address.as_str(), limit),
+    )
+    .await?;
+    parse_mail_history(&json, limit)
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -1523,5 +1591,27 @@ mod tests {
         .await
         .unwrap_err();
         assert!(crate::commands::denied_by_store(&error), "{error}");
+    }
+    /// La dirección que se manda al servicio: sin espacios, y las que no son una
+    /// dirección ni salen de la ventana.
+    #[test]
+    fn la_direccion_del_historial_se_limpia_o_se_descarta() {
+        assert_eq!(clean_address("  ana@x.com "), Some("ana@x.com".into()));
+        assert_eq!(clean_address(""), None);
+        assert_eq!(clean_address("ana"), None);
+        assert_eq!(clean_address("a\n@x.com"), None);
+        assert_eq!(clean_address(&format!("{}@x.com", "a".repeat(400))), None);
+    }
+
+    /// Lo que contesta `MessagesWith` se lee y se acota; sin cuerpo.
+    #[test]
+    fn el_historial_se_lee_y_se_acota() {
+        let json = r#"[{"uid":3,"date_ts":30,"subject":"c","from_addr":"a@x"},
+                       {"uid":2,"date_ts":20,"subject":"b","from_addr":"a@x"},
+                       {"uid":1,"date_ts":10,"subject":"a","from_addr":"a@x"}]"#;
+        let items = parse_mail_history(json, 2).unwrap();
+        assert_eq!(items.len(), 2);
+        assert_eq!(items[0].uid, 3);
+        assert!(parse_mail_history("no es json", 2).is_err());
     }
 }

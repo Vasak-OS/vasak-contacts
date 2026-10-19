@@ -259,6 +259,19 @@ pub(crate) fn denied_by_store(error: &str) -> bool {
 /// lo demás (el servicio caído, el bus cerrado).
 #[tauri::command]
 pub async fn request_store_permission_again() -> Result<(), String> {
+    request_again(CONTACTS_RESOURCE).await
+}
+
+/// Vuelve a pedir el permiso del historial de correo de la ficha
+/// (`store.email.interactions`). Igual que [`request_store_permission_again`],
+/// con el mismo techo de uno por minuto; el recurso va fijo en el programa y no
+/// lo elige la ventana.
+#[tauri::command]
+pub async fn request_mail_history_permission_again() -> Result<(), String> {
+    request_again(crate::store::MAIL_HISTORY_RESOURCE).await
+}
+
+async fn request_again(resource: &'static str) -> Result<(), String> {
     let connection = zbus::Connection::system().await.map_err(|e| {
         eprintln!(
             "[contactos] no se pudo abrir el bus del sistema para volver a pedir el permiso: {e}"
@@ -271,7 +284,7 @@ pub async fn request_store_permission_again() -> Result<(), String> {
             PERMISSIONS_PATH,
             Some(PERMISSIONS_INTERFACE),
             REQUEST_AGAIN_METHOD,
-            &(CONTACTS_RESOURCE,),
+            &(resource,),
         )
         .await
         .map(|_| ())
@@ -280,10 +293,31 @@ pub async fn request_store_permission_again() -> Result<(), String> {
             // Lo esperado —el techo y el fuera de alcance— ya lo dice la ventana;
             // lo demás se anota, que es un fallo de verdad del servicio o del bus.
             if code == REASK_FAILED {
-                eprintln!("[contactos] no se pudo volver a pedir el permiso del almacén: {e}");
+                eprintln!("[contactos] no se pudo volver a pedir el permiso de {resource}: {e}");
             }
             code.to_string()
         })
+}
+
+/// El historial de correo con una dirección: los últimos `limit` mensajes
+/// intercambiados con ella en la cuenta, más nuevos primero. **Sin cuerpo**.
+///
+/// Es de consulta, no se guarda nada: la ficha pregunta al abrirse y no se queda
+/// con la respuesta. Pide `store.email.interactions` —no `store.email` ni
+/// `account.email`—, así que esta aplicación nunca llega a la credencial ni al
+/// resto de la casilla. Un «no» vuelve como [`STORE_PERMISSION_DENIED`], la misma
+/// marca que el resto; la ventana decide qué pintar.
+#[tauri::command]
+pub async fn mail_history(
+    app: tauri::AppHandle,
+    account_id: String,
+    address: String,
+    limit: u32,
+) -> Result<Vec<crate::store::MailInteraction>, String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    crate::store::read_mail_history(&app.store(), &account_id, &address, limit)
+        .await
+        .map_err(denied_or)
 }
 
 /// El nombre del error de D-Bus de un error de `zbus`, si lo lleva. Un error

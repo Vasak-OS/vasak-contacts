@@ -19,6 +19,7 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { computed, ref } from 'vue';
 import ContactPhoto from '@/components/contacts/ContactPhoto.vue';
+import { useMailHistory } from '@/composables/use-mail-history';
 import { type Contact, canDelete, canEdit } from '@/tools/address-book';
 import {
 	addressLines,
@@ -31,7 +32,9 @@ import {
 } from '@/tools/contact-fields';
 import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
 import { interpolar } from '@/tools/interpolar';
+import { formatInteractionDate } from '@/tools/mail-history';
 import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
+import { reaskNoticeKey } from '@/tools/store-permission';
 import { syncBadge } from '@/tools/sync-badge';
 
 const props = defineProps<{
@@ -64,6 +67,16 @@ const removable = computed(() => (props.contact ? canDelete(props.contact) : fal
 const badge = computed(() => (props.contact ? syncBadge(props.contact.sync_state) : null));
 /** Si el contacto chocó con el servidor y hay un conflicto que resolver. */
 const inConflict = computed(() => props.contact?.sync_state === 'conflict');
+
+/**
+ * El historial de correo con esta persona. Apagado por omisión: no consulta
+ * nada hasta que se enciende (`composables/use-mail-history.ts`).
+ */
+const mailHistory = useMailHistory(() => props.contact);
+/** La sección sólo existe para un contacto con correo y de una cuenta. */
+const showMailHistory = computed(
+	() => !!props.contact?.account_id && (props.contact?.emails.length ?? 0) > 0
+);
 
 /** El diálogo de confirmar el borrado. */
 const confirmingDelete = ref(false);
@@ -395,6 +408,63 @@ const kindLabel = computed(() => {
               :label="copied === email.value ? t('contact.copied') : t('contact.copy')"
               @click="copy(email.value)" />
           </div>
+        </section>
+
+        <!-- El historial de correo: fecha, asunto y de quién, sin el cuerpo. Se
+             consulta al abrir la ficha y no se guarda. Apagado por omisión, así
+             que lo primero que se ve es qué es y el botón para encenderlo. -->
+        <section v-if="showMailHistory" class="flex min-w-0 flex-col gap-1" data-testid="mail-history">
+          <div class="flex min-w-0 flex-wrap items-center justify-between gap-1">
+            <SectionHeading as="h2" :title="t('mailHistory.title')" />
+            <ActionButton
+              class="shrink-0"
+              variant="ghost"
+              size="sm"
+              :label="mailHistory.enabled.value ? t('mailHistory.disable') : t('mailHistory.enable')"
+              v-bind="{ 'data-testid': 'mail-history-toggle' }"
+              @click="mailHistory.setEnabled(!mailHistory.enabled.value)" />
+          </div>
+
+          <p v-if="mailHistory.state.value === 'off'" class="text-tx-muted text-sm" data-testid="mail-history-off">
+            {{ t('mailHistory.off') }}
+          </p>
+          <p v-else-if="mailHistory.state.value === 'loading'" class="text-tx-muted text-sm" role="status">
+            {{ t('mailHistory.loading') }}
+          </p>
+          <div v-else-if="mailHistory.state.value === 'denied'" class="flex min-w-0 flex-col items-start gap-2" data-testid="mail-history-denied">
+            <p class="text-tx-muted text-sm" role="status">{{ t('mailHistory.denied') }}</p>
+            <ActionButton
+              variant="secondary"
+              size="sm"
+              :label="t('permiso.pedir')"
+              :loading="mailHistory.asking.value"
+              @click="mailHistory.askAgain()" />
+            <p v-if="mailHistory.reaskError.value" class="text-tx-muted text-xs" role="status">
+              {{ t(reaskNoticeKey(mailHistory.reaskError.value)) }}
+            </p>
+          </div>
+          <p v-else-if="mailHistory.state.value === 'unavailable'" class="text-tx-muted text-sm" data-testid="mail-history-unavailable">
+            {{ t('mailHistory.unavailable') }}
+          </p>
+          <p
+            v-else-if="mailHistory.state.value === 'ready' && mailHistory.items.value.length === 0"
+            class="text-tx-muted text-sm"
+            data-testid="mail-history-empty">
+            {{ t('mailHistory.empty') }}
+          </p>
+          <ul v-else-if="mailHistory.state.value === 'ready'" class="flex min-w-0 flex-col gap-2" data-testid="mail-history-list">
+            <!-- Un renglón con el asunto y debajo la fecha y de quién: apilado
+                 sirve igual a 240 px que a 1200, sin cortar nada importante. -->
+            <li
+              v-for="item in mailHistory.items.value"
+              :key="`${item.uid}-${item.date_ts}`"
+              class="flex min-w-0 flex-col">
+              <span class="truncate text-sm">{{ item.subject || t('mailHistory.noSubject') }}</span>
+              <span class="truncate text-tx-muted text-xs">
+                {{ [formatInteractionDate(item.date_ts, locale), interpolar(t('mailHistory.from'), item.from_addr)].filter(Boolean).join(' · ') }}
+              </span>
+            </li>
+          </ul>
         </section>
 
         <section v-if="contact.phones.length > 0" class="flex flex-col gap-1">
