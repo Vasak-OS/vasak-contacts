@@ -241,56 +241,210 @@ export function withoutAccents(text: string): string {
 }
 
 /**
- * Los contactos que coinciden con lo que se escribió.
+ * Dónde coincidió una palabra. **Sólo el nombre del campo, nunca su texto**:
+ * las notas son lo más privado de la ficha, y una razón como «coincide en
+ * notas» está bien mientras que mostrar el fragmento no. Quien dibuje la razón
+ * parte de acá y no tiene de dónde sacar el contenido.
+ */
+export type SearchField =
+	| 'name'
+	| 'nickname'
+	| 'organization'
+	| 'title'
+	| 'email'
+	| 'phone'
+	| 'address'
+	| 'notes'
+	| 'categories';
+
+/** Un contacto encontrado, con qué tan bien coincide y en qué campos. */
+export interface ContactMatch {
+	contact: Contact;
+	/** Mayor es mejor: suma, por palabra, el mejor tipo de coincidencia. */
+	score: number;
+	fields: SearchField[];
+}
+
+/** Distancia de edición entre dos cadenas (Levenshtein, dos filas). */
+export function levenshtein(a: string, b: string): number {
+	let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+	for (let i = 1; i <= a.length; i++) {
+		const row = [i];
+		for (let j = 1; j <= b.length; j++) {
+			row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+		}
+		prev = row;
+	}
+	return prev[b.length];
+}
+
+/**
+ * La forma «de oído» de una palabra en español, para comparar cómo suena y no
+ * cómo se escribe: `s/z/c` suenan igual (`c` sólo ante e/i), `b/v`, `y/ll`,
+ * `g/j` (`g` sólo ante e/i), `qu/k` y la `h` es muda.
  *
- * Se busca en el nombre, el apodo, la organización, el cargo, los correos y los
- * teléfonos:
- * la gente busca por lo que recuerda, y lo que recuerda a veces es «el que
- * trabaja en Vasak» o los últimos cuatro dígitos de un número.
+ * **No es Soundex ni Metaphone**: están pensados para el inglés y en español
+ * dan uniones absurdas. Estas reglas son cortas, se prueban una por una y no
+ * suman dependencia. Espera la palabra ya sin acentos y en minúsculas
+ * (`withoutAccents`).
+ */
+export function phoneticKey(word: string): string {
+	return (
+		word
+			.replace(/ll/g, 'y')
+			.replace(/ch/g, 'x')
+			.replace(/h/g, '')
+			.replace(/qu/g, 'k')
+			// «gue/gui» suena /ge/ con g dura: se marca para que la regla de g→j
+			// de abajo no la toque.
+			.replace(/gu(?=[ei])/g, 'G')
+			.replace(/g(?=[ei])/g, 'j')
+			.replace(/c(?=[ei])/g, 's')
+			.replace(/[zs]/g, 's')
+			.replace(/[ck]/g, 'k')
+			.replace(/v/g, 'b')
+			.replace(/G/g, 'g')
+	);
+}
+
+/** Cuántas ediciones se toleran, según el largo: en una palabra corta una es demasiado. */
+function typoTolerance(length: number): number {
+	if (length <= 3) return 0;
+	return length <= 6 ? 1 : 2;
+}
+
+const MATCH_EXACT = 4;
+const MATCH_PREFIX = 3;
+const MATCH_SUBSTRING = 2;
+const MATCH_PHONETIC = 1;
+
+interface IndexedField {
+	field: SearchField;
+	text: string;
+	tokens: string[];
+	/** Sólo dígitos: se compara contra los dígitos de lo que se escribió. */
+	isPhone: boolean;
+}
+
+function indexContact(contact: Contact): IndexedField[] {
+	const raw: [SearchField, string][] = [
+		['name', contact.name],
+		// El apodo es como muchos buscan a alguien: «Pato» y no «Joaquín».
+		['nickname', contact.nickname],
+		['organization', contact.organization],
+		['title', contact.title],
+		['title', contact.role],
+		...contact.emails.map((c): [SearchField, string] => ['email', c.value]),
+		// Los teléfonos, **sólo sus dígitos**: nadie busca «11-5555»
+		// escribiendo el guión en el mismo lugar, y los separadores que usa la
+		// gente no son una lista corta — enumerar el guión, el punto y el
+		// paréntesis dejaba afuera «11/5555-1234».
+		...contact.phones.map((t): [SearchField, string] => ['phone', t.value.replace(/\D/g, '')]),
+		...contact.addresses.map((d): [SearchField, string] => [
+			'address',
+			[d.po_box, d.extended, d.street, d.locality, d.region, d.postal_code, d.country].join(' '),
+		]),
+		['notes', contact.notes],
+		...contact.categories.map((c): [SearchField, string] => ['categories', c]),
+	];
+	return raw
+		.filter(([, text]) => text.trim().length > 0)
+		.map(([field, value]) => {
+			const text = withoutAccents(value);
+			return {
+				field,
+				text,
+				tokens: text.split(/[^\p{L}\p{N}]+/u).filter((t) => t.length > 0),
+				isPhone: field === 'phone',
+			};
+		});
+}
+
+/** Cómo coincide una palabra con un campo: 0 si no coincide. */
+function scoreWord(word: string, f: IndexedField): number {
+	if (f.text.includes(word)) {
+		if (f.tokens.includes(word)) return MATCH_EXACT;
+		return f.tokens.some((t) => t.startsWith(word)) ? MATCH_PREFIX : MATCH_SUBSTRING;
+	}
+	// Y si la palabra tiene dígitos, también por sus dígitos solos: así
+	// «(11) 5555-1234» encuentra un número guardado como «11/5555 1234».
+	//
+	// **Sólo si quedan dígitos.** Una palabra sin ninguno queda en la cadena
+	// vacía, y todo texto la contiene: sin este control, buscar «nadie»
+	// devolvía la agenda entera.
+	const digitsOnly = word.replace(/\D/g, '');
+	if (digitsOnly.length > 0) {
+		return f.isPhone && f.text.includes(digitsOnly) ? MATCH_SUBSTRING : 0;
+	}
+	if (f.isPhone) return 0;
+
+	const key = phoneticKey(word);
+	const tolerance = typoTolerance(key.length);
+	return f.tokens.some((t) => {
+		const tokenKey = phoneticKey(t);
+		return (
+			tokenKey === key ||
+			(tolerance > 0 &&
+				Math.abs(tokenKey.length - key.length) <= tolerance &&
+				levenshtein(tokenKey, key) <= tolerance)
+		);
+	})
+		? MATCH_PHONETIC
+		: 0;
+}
+
+/**
+ * Los contactos que coinciden con lo que se escribió, del que mejor coincide al
+ * que peor: exacta > prefijo > subcadena > fonética. A igual calidad se
+ * conserva el orden de entrada (el del idioma, ver `sortContacts`).
+ *
+ * Se busca en el nombre, el apodo, la organización, el cargo, los correos, los
+ * teléfonos, las direcciones, las notas y las etiquetas: la gente busca por lo
+ * que recuerda, y lo que recuerda a veces es «el que trabaja en Vasak» o los
+ * últimos cuatro dígitos de un número. Y se tolera el error de oído o de
+ * tipeo: «Gonsález» encuentra a «Gonzalez».
  *
  * Cada palabra tiene que aparecer en **alguna** parte, no todas en la misma:
  * escribir «ana vasak» encuentra a Ana que trabaja en Vasak, que es lo que
  * quiere decir quien lo escribe.
  */
-export function searchContacts(contacts: Contact[], query: string): Contact[] {
+export function searchMatches(contacts: Contact[], query: string): ContactMatch[] {
 	const words = withoutAccents(query)
 		.split(/\s+/)
 		.filter((p) => p.length > 0);
 	if (words.length === 0) {
-		return contacts;
+		return contacts.map((contact) => ({ contact, score: 0, fields: [] }));
 	}
 
-	return contacts.filter((contact) => {
-		const haystack = withoutAccents(
-			[
-				contact.name,
-				// El apodo es como muchos buscan a alguien: «Pato» y no «Joaquín».
-				contact.nickname,
-				contact.organization,
-				contact.title,
-				...contact.emails.map((c) => c.value),
-				// Los teléfonos, **sólo sus dígitos**: nadie busca «11-5555»
-				// escribiendo el guión en el mismo lugar, y los separadores que
-				// usa la gente no son una lista corta — enumerar el guión, el
-				// punto y el paréntesis dejaba afuera «11/5555-1234».
-				...contact.phones.map((t) => t.value.replace(/\D/g, '')),
-			].join(' ')
-		);
-
-		return words.every((word) => {
-			if (haystack.includes(word)) {
-				return true;
+	const found: ContactMatch[] = [];
+	for (const contact of contacts) {
+		const indexed = indexContact(contact);
+		const fields = new Set<SearchField>();
+		let score = 0;
+		const allFound = words.every((word) => {
+			let best = 0;
+			let bestField: SearchField | null = null;
+			for (const f of indexed) {
+				const s = scoreWord(word, f);
+				if (s > best) {
+					best = s;
+					bestField = f.field;
+				}
 			}
-			// Y si la palabra tiene dígitos, también por sus dígitos solos: así
-			// «(11) 5555-1234» encuentra un número guardado como «11/5555 1234».
-			//
-			// **Sólo si quedan dígitos.** Una palabra sin ninguno queda en la
-			// cadena vacía, y todo texto la contiene: sin este control, buscar
-			// «nadie» devolvía la agenda entera.
-			const digitsOnly = word.replace(/\D/g, '');
-			return digitsOnly.length > 0 && haystack.includes(digitsOnly);
+			if (bestField === null) return false;
+			fields.add(bestField);
+			score += best;
+			return true;
 		});
-	});
+		if (allFound) found.push({ contact, score, fields: [...fields] });
+	}
+	// `sort` es estable: a igual puntaje queda el orden con que llegaron.
+	return found.sort((a, b) => b.score - a.score);
+}
+
+/** Los contactos que coinciden con lo que se escribió. Ver `searchMatches`. */
+export function searchContacts(contacts: Contact[], query: string): Contact[] {
+	return searchMatches(contacts, query).map((m) => m.contact);
 }
 
 /**
