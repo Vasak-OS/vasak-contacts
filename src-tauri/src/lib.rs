@@ -9,6 +9,7 @@ mod commands;
 mod dav;
 mod locales;
 mod photos;
+mod qr;
 mod store;
 #[cfg(test)]
 mod test_bus;
@@ -51,6 +52,8 @@ pub fn run() {
             commands::get_contact_conflict,
             commands::resolve_contact_conflict,
             photos::contact_photo,
+            qr::generate_vcard_qr,
+            commands::own_card_address,
         ])
         .setup(|app| {
             // Lo nuevo que trae el sincronizador, para que la agenda se relea sola.

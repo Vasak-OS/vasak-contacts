@@ -34,7 +34,11 @@ import { interpolar } from '@/tools/interpolar';
 import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
 import { syncBadge } from '@/tools/sync-badge';
 
-const props = defineProps<{ contact: Contact | null }>();
+const props = defineProps<{
+	contact: Contact | null;
+	/** Si esta es la tarjeta de la persona («este soy yo»). */
+	isOwn?: boolean;
+}>();
 const emit = defineEmits<{
 	/** Volver a la lista, con la ventana angosta. */
 	back: [];
@@ -44,6 +48,10 @@ const emit = defineEmits<{
 	remove: [contact: Contact];
 	/** Resolver el conflicto de este contacto (abrir la comparación). */
 	resolve: [contact: Contact];
+	/** Mostrar el código QR de la tarjeta. */
+	qr: [contact: Contact];
+	/** Marcar o desmarcar esta tarjeta como la propia. */
+	toggleOwn: [contact: Contact];
 }>();
 
 const { t, locale } = useI18n();
@@ -261,6 +269,9 @@ const kindLabel = computed(() => {
             <span v-if="contact.organization" class="text-tx-muted">{{ contact.organization }}</span>
           </p>
           <p v-if="kindLabel" class="text-tx-muted text-xs">{{ kindLabel }}</p>
+          <div v-if="isOwn" class="flex">
+            <Badge tone="accent" variant="soft" size="sm" :label="t('qr.isMe')" v-bind="{ 'data-testid': 'own-badge' }" />
+          </div>
           <!-- La insignia «sin sincronizar», si el contacto tiene un cambio sin
                subir o un conflicto. El mismo tono y texto que en la lista
                (`tools/sync-badge.ts`). -->
@@ -291,7 +302,28 @@ const kindLabel = computed(() => {
              contacto recién creado, o cualquiera mientras el almacén no entregue
              el ETag, se muestra «pendiente» y no se puede editar sin arriesgar a
              pisar un cambio de otro lado. -->
-        <div class="flex shrink-0 gap-1 @min-[12rem]:ml-auto @min-[12rem]:self-start">
+        <div class="flex shrink-0 flex-wrap gap-1 @min-[12rem]:ml-auto @min-[12rem]:self-start">
+          <!-- «Este soy yo» alterna: es la marca de la tarjeta propia, la que
+               usa «mi QR». Apretado = es la mía. -->
+          <ActionButton
+            variant="ghost"
+            size="sm"
+            icon="avatar-default"
+            icon-type="symbol"
+            :label="t('qr.thisIsMe')"
+            :pressed="isOwn === true"
+            :title="isOwn ? t('qr.unmarkMe') : t('qr.markMe')"
+            v-bind="{ 'data-testid': 'toggle-own' }"
+            @click="emit('toggleOwn', contact)" />
+          <ActionButton
+            variant="ghost"
+            size="sm"
+            icon="view-barcode-qr"
+            icon-type="symbol"
+            :label="t('qr.show')"
+            :title="t('qr.show')"
+            v-bind="{ 'data-testid': 'show-qr' }"
+            @click="emit('qr', contact)" />
           <ActionButton
             variant="ghost"
             size="sm"

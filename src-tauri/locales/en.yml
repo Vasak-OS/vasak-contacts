@@ -159,3 +159,33 @@ permiso:
   limite: You just asked a moment ago; wait a minute and try again.
   denegado: This permission cannot be requested again.
   error: Could not ask for the permission again.
+# The business card: the QR code and which card is the person's own
+# (vasak-contacts#10).
+qr:
+  title: Card QR code
+  explain: Choose which details go in the code. Whoever scans it will see them, and nothing else is shared.
+  fields: Details in the code
+  name: Name
+  # What never goes; not a checkbox.
+  never: The photo never goes in the code.
+  alt: Card QR code
+  placeholder: Tick what you want to share and press "Generate code".
+  generate: Generate code
+  close: Close
+  show: Show QR
+  mine: My QR code
+  thisIsMe: This is me
+  markMe: Mark as my card
+  unmarkMe: Stop marking as my card
+  isMe: Your card
+  empty: Tick at least one detail to generate the code.
+  tooLong: What is ticked does not fit in a code that can be scanned. Remove some detail.
+  error: The code could not be generated.
+ownCard:
+  title: Your card
+  looking: Looking for your card on the server…
+  # `{0}` is the contact's name.
+  proposal: "The server says your card is {0}'s. Is it yours?"
+  none: Your server does not say which card is yours. Open it from the list and press "This is me".
+  confirm: Yes, it is mine
+  close: Close
