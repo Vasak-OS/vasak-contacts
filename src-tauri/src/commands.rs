@@ -115,6 +115,20 @@ pub async fn contactos_de_la_cuenta(
     Ok(lectura)
 }
 
+/// La dirección de la tarjeta propia que dice el servidor de la cuenta
+/// (`CARDDAV:principal-address`), o `None` si no la dice. Sólo para **proponer**
+/// cuál es la tarjeta de la persona: la elección final es suya.
+///
+/// Va al servidor, así que pide la credencial de la cuenta (el diálogo de
+/// permiso, la primera vez); por eso la ventana lo llama sólo cuando la persona
+/// pide proponer su tarjeta y trata cualquier error como «sin propuesta». Es de
+/// sólo lectura.
+#[tauri::command]
+pub async fn own_card_address(account_id: String) -> Result<Option<String>, String> {
+    let credencial = accounts::credencial_de(&account_id).await?;
+    carddav::direccion_propia(&credencial).await
+}
+
 /// Crea o edita un contacto en el almacén del sistema.
 ///
 /// `payload` es el parche que arma la ventana (`src/tools/contact-patch.ts`):

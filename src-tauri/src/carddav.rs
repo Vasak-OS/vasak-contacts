@@ -188,6 +188,65 @@ pub fn consulta_de_tarjetas() -> String {
     )
 }
 
+/// El cuerpo del `PROPFIND` que busca al principal de la persona: la carpeta
+/// dice quién es el usuario (`current-user-principal`) o, si no, de quién es
+/// (`owner`).
+pub fn consulta_de_principal() -> String {
+    r#"<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:">
+  <d:prop><d:current-user-principal/><d:owner/></d:prop>
+</d:propfind>"#
+        .to_string()
+}
+
+/// El cuerpo del `PROPFIND` que pide `CARDDAV:principal-address` (RFC 6352
+/// §7.1.2): la dirección de la tarjeta de quien está conectado.
+pub fn consulta_de_direccion_propia() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:" xmlns:c="{NS_CARDDAV}">
+  <d:prop><c:principal-address/></d:prop>
+</d:propfind>"#
+    )
+}
+
+/// La dirección que dice una propiedad `<d:href>` metida en `propiedad`.
+///
+/// Se busca **adentro de la propiedad** y no el primer `href` del documento:
+/// ese es el de la respuesta misma, y tomarlo daría la carpeta como si fuera la
+/// tarjeta. Cae en `None` si la propiedad falta, viene vacía o apunta a otro
+/// origen —se le mandaría la credencial—.
+fn href_de(xml: &str, base: &Url, ns: &str, propiedad: &str) -> Result<Option<Url>, DavError> {
+    let documento = dav::parse_xml(xml, &LIMITES)?;
+    Ok(documento
+        .descendants()
+        .filter(|n| n.has_tag_name((ns, propiedad)))
+        .find_map(|p| {
+            let href = p
+                .children()
+                .find(|n| n.has_tag_name((NS_DAV, "href")))?
+                .text()?;
+            dav::resolve_href(base, href).ok()
+        }))
+}
+
+/// El principal de la persona, de la respuesta que da su carpeta.
+///
+/// `current-user-principal` primero, que es lo que dice el estándar de acceso;
+/// `owner` de respaldo, que casi todos los servidores ponen y que en una
+/// carpeta personal es el mismo.
+pub fn principal_de(xml: &str, base: &Url) -> Result<Option<Url>, DavError> {
+    match href_de(xml, base, NS_DAV, "current-user-principal")? {
+        Some(url) => Ok(Some(url)),
+        None => href_de(xml, base, NS_DAV, "owner"),
+    }
+}
+
+/// La tarjeta propia, de la respuesta que da el principal.
+pub fn direccion_propia_de(xml: &str, base: &Url) -> Result<Option<Url>, DavError> {
+    href_de(xml, base, NS_CARDDAV, "principal-address")
+}
+
 // ---------------------------------------------------------------------------
 // La parte que habla por la red
 // ---------------------------------------------------------------------------
@@ -289,6 +348,53 @@ pub async fn libretas(credencial: &crate::accounts::Credencial) -> Result<Vec<Li
     dav::off_runtime(move || libretas_de(&xml, &home))
         .await
         .map_err(|e| e.to_string())
+}
+
+/// Un `PROPFIND` de profundidad 0 sobre `url`, sólo lectura.
+async fn propfind_de_un_recurso(
+    credencial: &crate::accounts::Credencial,
+    url: &Url,
+    cuerpo: String,
+) -> Result<String, String> {
+    let respuesta = cliente()?
+        .request(metodo("PROPFIND"), url.clone())
+        .header("Authorization", cabecera_de(credencial))
+        .header("Depth", "0")
+        .header("Content-Type", "application/xml; charset=utf-8")
+        .body(cuerpo)
+        .send()
+        .await
+        .map_err(|e| DavError::network(e.without_url()).to_string())?;
+    cuerpo_con_tope(respuesta).await
+}
+
+/// La dirección de la tarjeta de la persona según su servidor, si la dice.
+///
+/// Dos `PROPFIND` de sólo lectura: la carpeta dice quién es el principal, y el
+/// principal dice cuál es su tarjeta (`CARDDAV:principal-address`). **Muchos
+/// servidores no la ponen**: `Ok(None)` no es un error, es que la persona tiene
+/// que elegir su tarjeta ella. Cada dirección que el servidor manda se resuelve
+/// contra la de la cuenta y se descarta si es de otro origen (`resolve_href`).
+pub async fn direccion_propia(
+    credencial: &crate::accounts::Credencial,
+) -> Result<Option<String>, String> {
+    let home = direccion_de(credencial)?;
+
+    let xml = propfind_de_un_recurso(credencial, &home, consulta_de_principal()).await?;
+    let base = home.clone();
+    let principal = dav::off_runtime(move || principal_de(&xml, &base))
+        .await
+        .map_err(|e| e.to_string())?;
+    let Some(principal) = principal else {
+        return Ok(None);
+    };
+
+    let xml =
+        propfind_de_un_recurso(credencial, &principal, consulta_de_direccion_propia()).await?;
+    let direccion = dav::off_runtime(move || direccion_propia_de(&xml, &home))
+        .await
+        .map_err(|e| e.to_string())?;
+    Ok(direccion.map(|u| u.to_string()))
 }
 
 /// Todos los contactos de una libreta.
@@ -636,9 +742,93 @@ END:VCARD
         assert!(tarjetas_de(vacio, &base()).unwrap().is_empty());
     }
 
+    const PRINCIPAL: &str = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:">
+  <d:response>
+    <d:href>/dav/addressbooks/users/ana/</d:href>
+    <d:propstat><d:prop>
+      <d:current-user-principal><d:href>/dav/principals/users/ana/</d:href></d:current-user-principal>
+      <d:owner><d:href>/dav/principals/users/otra/</d:href></d:owner>
+    </d:prop></d:propstat>
+  </d:response>
+</d:multistatus>"#;
+
+    /// El principal es el de `current-user-principal`, **no** el `href` de la
+    /// respuesta, que es la carpeta misma.
+    #[test]
+    fn el_principal_sale_de_su_propiedad_y_no_del_href_de_la_respuesta() {
+        let url = principal_de(PRINCIPAL, &base()).unwrap().unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://nube.ejemplo.com/dav/principals/users/ana/"
+        );
+    }
+
+    /// Sin `current-user-principal`, el dueño de la carpeta.
+    #[test]
+    fn sin_principal_actual_vale_el_dueno() {
+        let xml = PRINCIPAL.replace("current-user-principal", "otra-cosa");
+        let url = principal_de(&xml, &base()).unwrap().unwrap();
+        assert!(url.path().ends_with("/users/otra/"));
+    }
+
+    #[test]
+    fn un_principal_de_otro_servidor_no_se_sigue() {
+        let xml = PRINCIPAL.replace(
+            "/dav/principals/users/ana/",
+            "https://otro.ejemplo.com/principals/ana/",
+        );
+        let xml = xml.replace("owner", "otra-cosa");
+        assert_eq!(principal_de(&xml, &base()).unwrap(), None);
+    }
+
+    #[test]
+    fn la_direccion_propia_es_la_del_principal_address() {
+        let xml = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/dav/principals/users/ana/</d:href>
+    <d:propstat><d:prop>
+      <c:principal-address><d:href>/dav/addressbooks/users/ana/personal/ana.vcf</d:href></c:principal-address>
+    </d:prop></d:propstat>
+  </d:response>
+</d:multistatus>"#;
+        let url = direccion_propia_de(xml, &base()).unwrap().unwrap();
+        assert_eq!(
+            url.as_str(),
+            "https://nube.ejemplo.com/dav/addressbooks/users/ana/personal/ana.vcf"
+        );
+    }
+
+    /// Muchos servidores no la ponen: eso es «sin propuesta», no un error.
+    #[test]
+    fn un_servidor_que_no_la_pone_es_sin_propuesta() {
+        let xml = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
+  <d:response>
+    <d:href>/dav/principals/users/ana/</d:href>
+    <d:propstat><d:prop><c:principal-address/></d:prop><d:status>HTTP/1.1 404 Not Found</d:status></d:propstat>
+  </d:response>
+</d:multistatus>"#;
+        assert_eq!(direccion_propia_de(xml, &base()).unwrap(), None);
+    }
+
+    #[test]
+    fn una_direccion_propia_de_otro_servidor_se_descarta() {
+        let xml = r#"<?xml version="1.0"?>
+<d:multistatus xmlns:d="DAV:" xmlns:c="urn:ietf:params:xml:ns:carddav">
+  <d:response><d:href>/p/</d:href><d:propstat><d:prop>
+    <c:principal-address><d:href>https://malo.ejemplo.com/ana.vcf</d:href></c:principal-address>
+  </d:prop></d:propstat></d:response>
+</d:multistatus>"#;
+        assert_eq!(direccion_propia_de(xml, &base()).unwrap(), None);
+    }
+
     #[test]
     fn las_consultas_son_xml_valido() {
         assert!(roxmltree::Document::parse(&consulta_de_libretas()).is_ok());
         assert!(roxmltree::Document::parse(&consulta_de_tarjetas()).is_ok());
+        assert!(roxmltree::Document::parse(&consulta_de_principal()).is_ok());
+        assert!(roxmltree::Document::parse(&consulta_de_direccion_propia()).is_ok());
     }
 }

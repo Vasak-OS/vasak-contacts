@@ -33,14 +33,18 @@
 //! - [`contact`]: el contacto que se muestra y cómo se arma.
 //! - [`date`], [`photo`] y [`social`]: las propiedades que tienen trabajo
 //!   propio.
+//! - [`export`]: la vCard reducida para el código QR (lo único que se escribe
+//!   acá; las tarjetas del almacén las escribe el servicio).
 
 pub mod contact;
 pub mod date;
+pub mod export;
 pub mod lines;
 pub mod photo;
 pub mod social;
 
 pub use contact::{contact_from, Contact};
+pub use export::{reduced_vcard, QrCard};
 pub use lines::split_cards;
 
 #[cfg(test)]

@@ -199,6 +199,9 @@ describe('la ficha', () => {
 		expect(buttons.map((b) => b.props('label'))).toEqual([
 			// El de volver a la lista, que sólo se ve con la ventana angosta.
 			'nav.contacts',
+			// «Este soy yo» y «Mostrar QR», en la cabecera (vasak-contacts#10).
+			'qr.thisIsMe',
+			'qr.show',
 			// Editar, en la cabecera; sin ETag se ve deshabilitado (punto 5). Sin
 			// número local no hay botón de borrar en este contacto de prueba.
 			'form.edit',

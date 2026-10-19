@@ -13,8 +13,11 @@ import ConflictDialog from '@/components/contacts/ConflictDialog.vue';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import ContactForm from '@/components/contacts/ContactForm.vue';
 import ContactList from '@/components/contacts/ContactList.vue';
+import OwnCardDialog from '@/components/contacts/OwnCardDialog.vue';
+import QrDialog from '@/components/contacts/QrDialog.vue';
 import { useAgenda } from '@/composables/use-agenda';
 import { useNarrowRow } from '@/composables/use-narrow-row';
+import { useOwnCard } from '@/composables/use-own-card';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import type { Contact } from '@/tools/address-book';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
@@ -24,6 +27,7 @@ import { isStorePermissionDenied, reaskNoticeKey } from '@/tools/store-permissio
 const { t, locale } = useI18n();
 const {
 	cuentas,
+	contactos,
 	visibles,
 	elegido,
 	consulta,
@@ -48,6 +52,55 @@ const {
 	toggleCategory,
 	clearCategories,
 } = useAgenda(() => locale.value);
+
+/**
+ * La tarjeta propia y el código QR (vasak-contacts#10). `qrContact` es de quién
+ * es el código que se muestra: la ficha que se está mirando, o la tarjeta
+ * propia con «mi QR».
+ */
+const own = useOwnCard(
+	() => contactos.value,
+	() => cuentas.value.map((cuenta) => cuenta.id)
+);
+const qrOpen = ref(false);
+const qrContact = ref<Contact | null>(null);
+const ownOpen = ref(false);
+const ownLooking = ref(false);
+const ownProposal = ref<Contact | null>(null);
+
+function openQr(contact: Contact) {
+	qrContact.value = contact;
+	qrOpen.value = true;
+}
+
+/**
+ * «Mi QR»: con la tarjeta propia marcada, su código. Sin marcar, se le pregunta
+ * al servidor cuál es y la persona lo confirma; si no lo dice, el diálogo explica
+ * que se marca desde la ficha («Este soy yo»).
+ */
+async function showMyQr() {
+	if (own.ownCard.value) {
+		openQr(own.ownCard.value);
+		return;
+	}
+	ownProposal.value = null;
+	ownLooking.value = true;
+	ownOpen.value = true;
+	try {
+		ownProposal.value = await own.propose();
+	} finally {
+		ownLooking.value = false;
+	}
+}
+
+function confirmOwnProposal() {
+	const proposal = ownProposal.value;
+	ownOpen.value = false;
+	if (proposal) {
+		own.mark(proposal);
+		openQr(proposal);
+	}
+}
 
 /**
  * El formulario de crear o editar. `editing` es el contacto que se edita, o
@@ -233,6 +286,16 @@ onMounted(cargar);
         :icon-alt="t('form.newTitle')"
         :title="t('form.newTitle')"
         @click="openNew()" />
+      <!-- Mi código QR: el de la tarjeta propia. Sólo si hay agenda que mirar. -->
+      <ActionButton
+        v-if="!sinPermiso && contactos.length > 0"
+        variant="ghost"
+        label=""
+        icon="view-barcode-qr"
+        :icon-alt="t('qr.mine')"
+        :title="t('qr.mine')"
+        v-bind="{ 'data-testid': 'my-qr' }"
+        @click="showMyQr()" />
       <!-- `ghost`, como los tres botones de la ventana que tiene al lado: los
            cuatro son controles de la barra y se leen como un grupo. -->
       <ActionButton
@@ -341,12 +404,15 @@ onMounted(cargar);
         @back="go('accounts')" />
       <ContactDetail
         :contact="elegido"
+        :is-own="own.isOwn(elegido)"
         v-bind="{ 'data-pane': 'detail' }"
         :class="paneClass('detail', pane)"
         @back="go('list')"
         @edit="openEdit"
         @remove="removeContact"
-        @resolve="openConflict" />
+        @resolve="openConflict"
+        @qr="openQr"
+        @toggle-own="own.toggle" />
     </template>
 
     <!-- El aviso de que un borrado no se pudo: una barra al pie, que se cierra.
@@ -372,6 +438,16 @@ onMounted(cargar);
       :saving="saving"
       :error="formError"
       @submit="submitForm" />
+
+    <!-- El código QR de una tarjeta, con las casillas de qué va. Flota dentro de
+         la ventana, así que es opaco (lo pone `DialogContent`). -->
+    <QrDialog v-model:open="qrOpen" :contact="qrContact" />
+
+    <OwnCardDialog
+      v-model:open="ownOpen"
+      :loading="ownLooking"
+      :proposal="ownProposal"
+      @confirm="confirmOwnProposal" />
 
     <!-- La comparación de un conflicto: la versión local y la del servidor, con
          «mantener la mía» y «tomar la del servidor». Flota dentro de la ventana,

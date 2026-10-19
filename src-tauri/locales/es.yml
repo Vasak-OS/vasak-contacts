@@ -177,3 +177,33 @@ permiso:
   limite: Ya lo pediste hace un momento; esperá un minuto y probá de nuevo.
   denegado: No se puede volver a pedir este permiso.
   error: No se pudo volver a pedir el permiso.
+# La tarjeta de presentación: el código QR y cuál es la tarjeta propia
+# (vasak-contacts#10).
+qr:
+  title: Código QR de la tarjeta
+  explain: Elegí qué datos van en el código. Quien lo escanee los va a ver, y no se comparte nada más.
+  fields: Datos que van en el código
+  name: Nombre
+  # Lo que nunca va; no es una casilla.
+  never: La foto nunca va en el código.
+  alt: Código QR de la tarjeta
+  placeholder: Marcá lo que querés compartir y apretá «Generar código».
+  generate: Generar código
+  close: Cerrar
+  show: Mostrar QR
+  mine: Mi código QR
+  thisIsMe: Este soy yo
+  markMe: Marcar como mi tarjeta
+  unmarkMe: Dejar de marcar como mi tarjeta
+  isMe: Tu tarjeta
+  empty: Marcá al menos un dato para generar el código.
+  tooLong: Lo marcado no entra en un código que se pueda escanear. Sacá algún dato.
+  error: No se pudo generar el código.
+ownCard:
+  title: Tu tarjeta
+  looking: Buscando tu tarjeta en el servidor…
+  # `{0}` es el nombre del contacto.
+  proposal: "El servidor dice que tu tarjeta es la de {0}. ¿Es la tuya?"
+  none: Tu servidor no dice cuál es tu tarjeta. Abrila desde la lista y tocá «Este soy yo».
+  confirm: Sí, es la mía
+  close: Cerrar
