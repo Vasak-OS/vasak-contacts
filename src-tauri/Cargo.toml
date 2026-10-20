@@ -1,6 +1,6 @@
 [package]
 name = "vasak-contacts"
-version = "0.20.0"
+version = "0.20.1"
 description = "Los contactos de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -32,6 +32,10 @@ tauri-plugin-shell = "2"
 
 # Para la ventana sin decoración: la barra propia necesita mover y redimensionar.
 gtk = "0.18"
+# Para afinar el WebKit de la ventana (`commands/webkit.rs`) y bajar su consumo
+# de memoria. Enlaza libwebkit2gtk, que la app Tauri ya usa: no suma ninguna
+# biblioteca compartida nueva al paquete.
+webkit2gtk = "2.0"
 tauri-plugin-vsk-journal = "2"
 # Para hablar con vasak-accounts, que es de donde salen las libretas.
 zbus = { version = "5", default-features = false, features = ["tokio"] }
