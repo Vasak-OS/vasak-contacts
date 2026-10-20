@@ -56,6 +56,7 @@ pub fn run() {
             photos::contact_photo,
             qr::generate_vcard_qr,
             commands::own_card_address,
+            commands::webkit::tune_webview,
         ])
         .setup(|app| {
             // Lo nuevo que trae el sincronizador, para que la agenda se relea sola.
