@@ -1,6 +1,6 @@
 [package]
 name = "vasak-contacts"
-version = "0.20.1"
+version = "0.20.2"
 description = "Los contactos de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -25,7 +25,7 @@ serde_json = "1"
 # Los plugins del escritorio. Los cuatro, no dos: una app de VasakOS tiene que
 # hablar el idioma de la sesión y abrir el menú del sistema con el clic derecho.
 tauri-plugin-vicons = "2"
-tauri-plugin-config-manager = "2"
+tauri-plugin-config-manager = "2.13"
 tauri-plugin-i18n-vsk = "2.3.0"
 tauri-plugin-vsk-contextual-menu = "2"
 tauri-plugin-shell = "2"
