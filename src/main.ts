@@ -9,6 +9,7 @@ import { createApp } from 'vue';
 import App from '@/App.vue';
 import { esperarArranque } from '@/tools/arranque';
 import { sanearUrl } from '@/tools/csp';
+import { saveTheme } from '@/tools/theme-cache';
 import '@/assets/main.css';
 
 /**
@@ -83,7 +84,15 @@ app.config.errorHandler = (error, _instancia, info) => {
 // hoja de estilo caía en los valores por omisión, que son los del tema claro.
 // Acá se lee antes de montar, y `App.vue` se queda sólo con el aviso de cambios.
 const arranqueCompleto = await esperarArranque(
-	[I18n.getInstance().load(), useConfigStore().loadConfig()],
+	[
+		I18n.getInstance().load(),
+		// Recuerda el tema aplicado para que `index.html` lo reaplique en el próximo
+		// arranque, antes de montar. Sólo si la lectura salió bien: con un fallo se
+		// pisaría el recuerdo bueno con un tema vacío.
+		useConfigStore()
+			.loadConfig()
+			.then(() => saveTheme()),
+	],
 	PLAZO_ARRANQUE_MS
 );
 

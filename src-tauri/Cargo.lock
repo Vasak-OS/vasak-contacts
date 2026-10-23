@@ -4543,7 +4543,7 @@ dependencies = [
 
 [[package]]
 name = "vasak-contacts"
-version = "0.20.2"
+version = "0.20.3"
 dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
