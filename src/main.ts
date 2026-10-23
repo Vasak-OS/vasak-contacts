@@ -9,7 +9,7 @@ import { createApp } from 'vue';
 import App from '@/App.vue';
 import { esperarArranque } from '@/tools/arranque';
 import { sanearUrl } from '@/tools/csp';
-import { guardarTema } from '@/tools/tema-cache';
+import { saveTheme } from '@/tools/theme-cache';
 import '@/assets/main.css';
 
 /**
@@ -91,7 +91,7 @@ const arranqueCompleto = await esperarArranque(
 		// pisaría el recuerdo bueno con un tema vacío.
 		useConfigStore()
 			.loadConfig()
-			.then(() => guardarTema()),
+			.then(() => saveTheme()),
 	],
 	PLAZO_ARRANQUE_MS
 );

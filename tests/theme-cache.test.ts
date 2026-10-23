@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { aplicarTema, CLAVE_TEMA, guardarTema } from '../src/tools/tema-cache';
+import { applyTheme, THEME_KEY, saveTheme } from '../src/tools/theme-cache';
 
 /** Un `Storage` de prueba: no toca el `localStorage` global. */
 function almacenDePrueba(inicial: Record<string, string> = {}): Storage {
@@ -22,7 +22,7 @@ function almacenQueTira(): Storage {
 
 const nuevaRaiz = () => document.createElement('div');
 
-describe('guardarTema', () => {
+describe('saveTheme', () => {
 	test('guarda la clase oscura y sólo las variables `--*` del estilo en línea', () => {
 		const raiz = nuevaRaiz();
 		raiz.classList.add('dark');
@@ -31,9 +31,9 @@ describe('guardarTema', () => {
 		raiz.style.color = 'blue'; // una propiedad común no es del esquema
 		const almacen = almacenDePrueba();
 
-		guardarTema(raiz, almacen);
+		saveTheme(raiz, almacen);
 
-		expect(JSON.parse(almacen.getItem(CLAVE_TEMA) as string)).toEqual({
+		expect(JSON.parse(almacen.getItem(THEME_KEY) as string)).toEqual({
 			dark: true,
 			vars: { '--foo': 'red', '--ui-background': '#101010' },
 		});
@@ -44,28 +44,28 @@ describe('guardarTema', () => {
 		raiz.style.setProperty('--foo', 'red');
 		const almacen = almacenDePrueba();
 
-		guardarTema(raiz, almacen);
+		saveTheme(raiz, almacen);
 
-		expect(JSON.parse(almacen.getItem(CLAVE_TEMA) as string).dark).toBe(false);
+		expect(JSON.parse(almacen.getItem(THEME_KEY) as string).dark).toBe(false);
 	});
 
 	test('la clave es la que lee el script de index.html', () => {
-		expect(CLAVE_TEMA).toBe('vsk-theme');
+		expect(THEME_KEY).toBe('vsk-theme');
 	});
 
 	test('un almacén inaccesible no rompe el arranque', () => {
-		expect(() => guardarTema(nuevaRaiz(), almacenQueTira())).not.toThrow();
+		expect(() => saveTheme(nuevaRaiz(), almacenQueTira())).not.toThrow();
 	});
 });
 
-describe('aplicarTema', () => {
+describe('applyTheme', () => {
 	test('reaplica la clase oscura y las variables recordadas', () => {
 		const almacen = almacenDePrueba({
-			[CLAVE_TEMA]: JSON.stringify({ dark: true, vars: { '--foo': 'red', '--ui-background': '#101010' } }),
+			[THEME_KEY]: JSON.stringify({ dark: true, vars: { '--foo': 'red', '--ui-background': '#101010' } }),
 		});
 		const raiz = nuevaRaiz();
 
-		aplicarTema(raiz, almacen);
+		applyTheme(raiz, almacen);
 
 		expect(raiz.classList.contains('dark')).toBe(true);
 		expect(raiz.style.getPropertyValue('--foo')).toBe('red');
@@ -74,11 +74,11 @@ describe('aplicarTema', () => {
 
 	test('con dark en falso no agrega la clase `.dark`', () => {
 		const almacen = almacenDePrueba({
-			[CLAVE_TEMA]: JSON.stringify({ dark: false, vars: { '--foo': 'red' } }),
+			[THEME_KEY]: JSON.stringify({ dark: false, vars: { '--foo': 'red' } }),
 		});
 		const raiz = nuevaRaiz();
 
-		aplicarTema(raiz, almacen);
+		applyTheme(raiz, almacen);
 
 		expect(raiz.classList.contains('dark')).toBe(false);
 		expect(raiz.style.getPropertyValue('--foo')).toBe('red');
@@ -87,7 +87,7 @@ describe('aplicarTema', () => {
 	test('sin nada guardado no toca la raíz ni lanza', () => {
 		const raiz = nuevaRaiz();
 
-		expect(() => aplicarTema(raiz, almacenDePrueba())).not.toThrow();
+		expect(() => applyTheme(raiz, almacenDePrueba())).not.toThrow();
 
 		expect(raiz.classList.contains('dark')).toBe(false);
 		expect(raiz.style.length).toBe(0);
@@ -96,13 +96,13 @@ describe('aplicarTema', () => {
 	test('un JSON inválido no lanza ni toca la raíz', () => {
 		const raiz = nuevaRaiz();
 
-		expect(() => aplicarTema(raiz, almacenDePrueba({ [CLAVE_TEMA]: '{no es json' }))).not.toThrow();
+		expect(() => applyTheme(raiz, almacenDePrueba({ [THEME_KEY]: '{no es json' }))).not.toThrow();
 
 		expect(raiz.style.length).toBe(0);
 	});
 
 	test('un almacén inaccesible no rompe el arranque', () => {
-		expect(() => aplicarTema(nuevaRaiz(), almacenQueTira())).not.toThrow();
+		expect(() => applyTheme(nuevaRaiz(), almacenQueTira())).not.toThrow();
 	});
 });
 
@@ -113,10 +113,10 @@ describe('ida y vuelta', () => {
 		origen.style.setProperty('--foo', 'red');
 		origen.style.setProperty('--ui-background', '#101010');
 		const almacen = almacenDePrueba();
-		guardarTema(origen, almacen);
+		saveTheme(origen, almacen);
 
 		const destino = nuevaRaiz();
-		aplicarTema(destino, almacen);
+		applyTheme(destino, almacen);
 
 		expect(destino.classList.contains('dark')).toBe(true);
 		expect(destino.style.getPropertyValue('--foo')).toBe('red');
@@ -140,19 +140,19 @@ describe('cableado contra el parpadeo de tema', () => {
 		expect(html.indexOf('<script>')).toBeLessThan(html.indexOf('type="module"'));
 
 		const cuerpo = (script as RegExpMatchArray)[1];
-		expect(cuerpo).toContain(`"${CLAVE_TEMA}"`);
+		expect(cuerpo).toContain(`"${THEME_KEY}"`);
 		expect(cuerpo).toContain('classList.add("dark")');
 		expect(cuerpo).toContain('setProperty');
 	});
 
-	test('el script de index.html, ejecutado, reproduce lo que guardó guardarTema', () => {
+	test('el script de index.html, ejecutado, reproduce lo que guardó saveTheme', () => {
 		const html = leer('../index.html');
 		const cuerpo = (html.match(/<script>([\s\S]*?)<\/script>/) as RegExpMatchArray)[1];
 		const raiz = document.documentElement;
-		const antes = localStorage.getItem(CLAVE_TEMA);
+		const antes = localStorage.getItem(THEME_KEY);
 		try {
 			localStorage.setItem(
-				CLAVE_TEMA,
+				THEME_KEY,
 				JSON.stringify({ dark: true, vars: { '--tema-prueba': 'rebeccapurple' } })
 			);
 
@@ -163,23 +163,23 @@ describe('cableado contra el parpadeo de tema', () => {
 		} finally {
 			raiz.classList.remove('dark');
 			raiz.style.removeProperty('--tema-prueba');
-			if (antes === null) localStorage.removeItem(CLAVE_TEMA);
-			else localStorage.setItem(CLAVE_TEMA, antes);
+			if (antes === null) localStorage.removeItem(THEME_KEY);
+			else localStorage.setItem(THEME_KEY, antes);
 		}
 	});
 
 	test('main.ts guarda el tema al leer la configuración, antes de montar', () => {
 		const ts = leer('../src/main.ts');
 
-		expect(ts).toContain("from '@/tools/tema-cache'");
-		expect(ts).toMatch(/loadConfig\(\)\s*\.then\(\(\) => guardarTema\(\)\)/);
-		expect(ts.indexOf('guardarTema()')).toBeLessThan(ts.indexOf("app.mount('#app')"));
+		expect(ts).toContain("from '@/tools/theme-cache'");
+		expect(ts).toMatch(/loadConfig\(\)\s*\.then\(\(\) => saveTheme\(\)\)/);
+		expect(ts.indexOf('saveTheme()')).toBeLessThan(ts.indexOf("app.mount('#app')"));
 	});
 
 	test('App.vue guarda el tema al recargar la configuración por un cambio', () => {
 		const vue = leer('../src/App.vue');
 
-		expect(vue).toContain("from '@/tools/tema-cache'");
-		expect(vue).toMatch(/loadConfig\(\)\.then\(\(\) => guardarTema\(\)\)/);
+		expect(vue).toContain("from '@/tools/theme-cache'");
+		expect(vue).toMatch(/loadConfig\(\)\.then\(\(\) => saveTheme\(\)\)/);
 	});
 });

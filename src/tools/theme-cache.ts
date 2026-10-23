@@ -9,15 +9,15 @@
  * montar, de modo que el primer dibujo ya sea el correcto.
  *
  * Este módulo existe aparte para poder probar la lógica; el script del `<head>`
- * es una copia mínima de [`aplicarTema`] porque corre antes del bundle y no puede
+ * es una copia mínima de [`applyTheme`] porque corre antes del bundle y no puede
  * importar nada.
  */
 
 /** La clave bajo la que vive el tema recordado. La comparte con `index.html`. */
-export const CLAVE_TEMA = 'vsk-theme';
+export const THEME_KEY = 'vsk-theme';
 
 /** El tema recordado: la clase oscura y las variables que puso el gestor. */
-export interface TemaCacheado {
+export interface CachedTheme {
 	dark: boolean;
 	vars: Record<string, string>;
 }
@@ -30,7 +30,7 @@ export interface TemaCacheado {
  * afinado pre-boot es una mejora, no una necesidad, así que un `localStorage`
  * inaccesible (modo privado, bloqueado) no debe romper el arranque.
  */
-export function guardarTema(
+export function saveTheme(
 	raiz: HTMLElement = document.documentElement,
 	almacen: Storage = localStorage
 ): void {
@@ -39,8 +39,8 @@ export function guardarTema(
 		for (const nombre of Array.from(raiz.style)) {
 			if (nombre.startsWith('--')) vars[nombre] = raiz.style.getPropertyValue(nombre);
 		}
-		const tema: TemaCacheado = { dark: raiz.classList.contains('dark'), vars };
-		almacen.setItem(CLAVE_TEMA, JSON.stringify(tema));
+		const tema: CachedTheme = { dark: raiz.classList.contains('dark'), vars };
+		almacen.setItem(THEME_KEY, JSON.stringify(tema));
 	} catch {
 		// localStorage puede no estar disponible: sin recuerdo, arranca como antes.
 	}
@@ -50,14 +50,14 @@ export function guardarTema(
  * Reaplica sobre `raiz` el tema recordado. La usa la prueba; el arranque real lo
  * hace la copia mínima del `<head>` de `index.html`, que corre antes del bundle.
  */
-export function aplicarTema(
+export function applyTheme(
 	raiz: HTMLElement = document.documentElement,
 	almacen: Storage = localStorage
 ): void {
 	try {
-		const crudo = almacen.getItem(CLAVE_TEMA);
+		const crudo = almacen.getItem(THEME_KEY);
 		if (!crudo) return;
-		const tema = JSON.parse(crudo) as TemaCacheado;
+		const tema = JSON.parse(crudo) as CachedTheme;
 		if (tema.dark) raiz.classList.add('dark');
 		for (const nombre in tema.vars) raiz.style.setProperty(nombre, tema.vars[nombre]);
 	} catch {
