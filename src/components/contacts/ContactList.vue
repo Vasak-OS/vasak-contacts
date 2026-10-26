@@ -7,6 +7,7 @@ import {
 	ListRow,
 	LoadingState,
 	Panel,
+	RevealTransition,
 	SectionHeading,
 } from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
@@ -89,19 +90,26 @@ function titleOf(initial: string): string {
         aria-live="polite"
         data-testid="count">{{ countLabel }}</span>
     </div>
-    <LoadingState v-if="loading && contacts.length === 0" size="sm" :label="t('lista.cargando')" />
+    <!-- Cargando, sin resultados, vacía o con contactos: una sola transición
+         entre estados (spec §5.5), la de adentro del panel. Las filas no se
+         animan una por una. Escribir en el buscador sólo anima al pasar de uno
+         a otro estado —con resultados a sin ellos—; mientras sigue habiendo
+         lista no se mueve nada. -->
+    <RevealTransition mode="out-in">
+    <LoadingState v-if="loading && contacts.length === 0" key="loading" size="sm" :label="t('lista.cargando')" />
 
     <!-- Una búsqueda sin resultados dice **qué** no se encontró. «No hay nada»
          a secas deja a la persona sin saber si escribió mal o si de verdad no
          tiene a nadie anotado. -->
     <EmptyState
       v-else-if="contacts.length === 0 && query.trim()"
+      key="no-results"
       size="sm"
       icon=""
       :title="interpolar(t('lista.sinResultados'), query)" />
-    <EmptyState v-else-if="contacts.length === 0" size="sm" icon="" :title="t('lista.vacia')" />
+    <EmptyState v-else-if="contacts.length === 0" key="empty" size="sm" icon="" :title="t('lista.vacia')" />
 
-    <template v-else>
+    <div v-else key="list" class="min-w-0">
       <section v-for="group in groups" :key="group.initial">
         <!-- Pegado arriba al desplazar, con el fondo opaco del panel: la copia
              de acá llevaba `bg-ui-bg/95`, el fondo de la ventana encima del
@@ -133,6 +141,7 @@ function titleOf(initial: string): string {
           </li>
         </ul>
       </section>
-    </template>
+    </div>
+    </RevealTransition>
   </Panel>
 </template>
