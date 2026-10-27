@@ -15,6 +15,7 @@ import {
 	Panel,
 	type PropertyItem,
 	PropertyList,
+	RevealTransition,
 	SectionHeading,
 } from '@vasakgroup/vue-libvasak';
 import { computed, ref } from 'vue';
@@ -265,9 +266,16 @@ const kindLabel = computed(() => {
         @click="emit('back')" />
     </div>
 
-    <p v-if="!contact" class="p-4 text-tx-muted text-sm">{{ t('contact.pickOne') }}</p>
+    <!-- Al elegir a otro, la ficha vieja se va y recién después entra la nueva
+         (`out-in`, spec §5.5). Sin parpadeo: la clave es la del contacto, así
+         que editar o refrescar al mismo no anima; y la ficha que sale es el
+         DOM ya dibujado con sus datos —un vnode viejo no se vuelve a parchear
+         mientras se va—, de modo que el cambio de `contact` no se ve en ella.
+         El «elegí a alguien» entra y sale con la misma transición. -->
+    <RevealTransition mode="out-in">
+    <p v-if="!contact" key="empty" class="p-4 text-tx-muted text-sm">{{ t('contact.pickOne') }}</p>
 
-    <template v-else>
+    <div v-else :key="contact.url || contact.uid" class="flex min-w-0 flex-col">
       <header
         class="flex flex-col items-start gap-4 border-ui-line-weak border-b p-4 @min-[12rem]:flex-row @min-[12rem]:items-center">
         <ContactPhoto :contact="contact" />
@@ -621,7 +629,8 @@ const kindLabel = computed(() => {
         </Disclosure>
 
       </div>
-    </template>
+    </div>
+    </RevealTransition>
 
     <!-- Confirmar el borrado: es irreversible del lado de la ventana —después
          lo encola el almacén hacia el servidor—, así que se pregunta antes. El

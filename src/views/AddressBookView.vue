@@ -5,6 +5,7 @@ import {
 	AlertMessage,
 	BarSearch,
 	EmptyState,
+	RevealTransition,
 	ThemeIcon,
 } from '@vasakgroup/vue-libvasak';
 import { computed, nextTick, onMounted, ref, useTemplateRef, watch } from 'vue';
@@ -418,14 +419,16 @@ onMounted(cargar);
     <!-- El aviso de que un borrado no se pudo: una barra al pie, que se cierra.
          No tapa la agenda, que sigue mostrando al contacto que volvió. -->
     <template #pie>
-      <AlertMessage
-        v-if="actionNotice"
-        tone="error"
-        variant="banner"
-        icon="auto"
-        dismissible
-        :title="actionNotice"
-        @close="actionNotice = ''" />
+      <RevealTransition>
+        <AlertMessage
+          v-if="actionNotice"
+          tone="error"
+          variant="banner"
+          icon="auto"
+          dismissible
+          :title="actionNotice"
+          @close="actionNotice = ''" />
+      </RevealTransition>
     </template>
 
     <!-- El formulario de crear o editar. Flota dentro de la ventana, así que es
