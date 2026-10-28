@@ -1,7 +1,7 @@
 {
   "name": "vasak-contacts",
   "private": true,
-  "version": "0.20.5",
+  "version": "0.20.6",
   "type": "module",
   "scripts": {
     "dev": "bunx --bun vite",
@@ -48,7 +48,7 @@
       "reqwest (crate de Rust)": "Se queda en 0.12, la misma que usa el servicio vasak-accounts (oauth2 5 todavía pide ^0.12), y en 0.13 el TLS de rustls pasa a aws-lc-rs, que se compila en C. Se saca cuando vasak-accounts suba a 0.13.",
       "gtk (crate de Rust)": "Va atado a la 0.18 que usan tauri y webkit2gtk: otra versión metería una segunda copia de los enlaces a GTK. Se saca cuando tauri suba de gtk-rs.",
       "sha2 (crate de Rust)": "Se queda en la 0.10, la que ya trae tauri: la 0.11 metería una segunda copia, y para el nombre de un archivo de caché no cambia nada. Se saca cuando tauri suba a sha2 0.11.",
-      "zbus (crate de Rust)": "Se queda en la 5: tauri-plugin-vsk-store 0.2 expone tipos de zbus 5 en su API (`call_json` pide `DynamicType`), y una zbus 6 propia no encajaría con ellos. Se saca cuando el plugin suba a zbus 6."
+      "zbus (crate de Rust)": "Se queda en la 5: tauri-plugin-vsk-store 0.3 expone tipos de zbus 5 en su API (`call_json` pide `DynamicType`), y una zbus 6 propia no encajaría con ellos. Se saca cuando el plugin suba a zbus 6."
     }
   }
 }
