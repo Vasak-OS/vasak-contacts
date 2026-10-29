@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, test } from 'bun:test';
-import { emptyContact } from '@/tools/address-book';
+import { type Address, emptyContact } from '@/tools/address-book';
 import {
 	buildContactPatch,
 	type ContactFormState,
@@ -69,9 +69,10 @@ describe('el parche de un contacto', () => {
 		expect(patch.related).toEqual([{ value: 'Juan', label: 'spouse' }]);
 	});
 
-	test('al crear lleva los seis campos y nunca un id', () => {
+	test('al crear lleva los siete campos y nunca un id', () => {
 		const patch = buildContactPatch(form(), { mode: 'create' });
 		expect(Object.keys(patch).sort()).toEqual([
+			'addresses',
 			'emails',
 			'full_name',
 			'note',
@@ -113,7 +114,104 @@ describe('el parche de un contacto', () => {
 	});
 });
 
+/** Una dirección con lo que se le pase encima. */
+function address(overrides: Partial<Address> = {}): Address {
+	return {
+		label: 'home',
+		po_box: '',
+		extended: '',
+		street: '',
+		locality: '',
+		region: '',
+		postal_code: '',
+		country: '',
+		...overrides,
+	};
+}
+
+describe('las direcciones del parche', () => {
+	test('van recortadas y la ciudad (locality) se manda como city', () => {
+		const patch = buildContactPatch(
+			form({
+				addresses: [
+					address({
+						label: ' work ',
+						po_box: ' 12 ',
+						extended: ' piso 3 ',
+						street: '  Calle Falsa 123 ',
+						locality: ' Rosario ',
+						region: ' Santa Fe ',
+						postal_code: ' 2000 ',
+						country: ' Argentina ',
+					}),
+				],
+			}),
+			{ mode: 'create' }
+		);
+		expect(patch.addresses).toEqual([
+			{
+				label: 'work',
+				po_box: '12',
+				extended: 'piso 3',
+				street: 'Calle Falsa 123',
+				city: 'Rosario',
+				region: 'Santa Fe',
+				postal_code: '2000',
+				country: 'Argentina',
+			},
+		]);
+		// El servicio no conoce `locality`: sólo `city`.
+		expect(Object.keys((patch.addresses as object[])[0])).not.toContain('locality');
+	});
+
+	test('una fila con sólo la etiqueta no es una dirección y se descarta', () => {
+		const patch = buildContactPatch(
+			form({
+				addresses: [
+					address({ label: 'home' }),
+					address({ label: 'work', street: '   ', country: ' ' }),
+					address({ label: 'other', country: 'Chile' }),
+				],
+			}),
+			{ mode: 'create' }
+		);
+		expect(patch.addresses).toEqual([expect.objectContaining({ label: 'other', country: 'Chile' })]);
+		expect(patch.addresses).toHaveLength(1);
+	});
+
+	test('sin ninguna dirección con datos se manda null, al crear y al editar', () => {
+		expect(buildContactPatch(form(), { mode: 'create' }).addresses).toBeNull();
+		expect(
+			buildContactPatch(form({ addresses: [address()] }), { mode: 'edit', id: 1 }).addresses
+		).toBeNull();
+	});
+
+	test('una etiqueta propia (que el selector no ofrece) se conserva', () => {
+		const patch = buildContactPatch(
+			form({ addresses: [address({ label: 'x-casa-de-verano', street: 'Ruta 2' })] }),
+			{ mode: 'edit', id: 1 }
+		);
+		expect(patch.addresses).toEqual([
+			expect.objectContaining({ label: 'x-casa-de-verano', street: 'Ruta 2' }),
+		]);
+	});
+});
+
 describe('el formulario desde un contacto', () => {
+	test('precarga las direcciones del contacto, con su etiqueta y sus partes', () => {
+		const original = address({
+			label: 'work',
+			street: 'Calle 1',
+			locality: 'Rosario',
+			postal_code: '2000',
+		});
+		const f = formFromContact(emptyContact({ addresses: [original] }));
+		expect(f.addresses).toEqual([original]);
+		// Es una copia: editar la fila no toca lo que vino del programa.
+		f.addresses[0].street = 'otra';
+		expect(original.street).toBe('Calle 1');
+	});
+
 	test('precarga lo que el lado de lectura trae', () => {
 		const contact = emptyContact({
 			name: 'Ana Pérez',

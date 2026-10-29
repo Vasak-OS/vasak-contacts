@@ -93,6 +93,7 @@ form:
   addEmail: Agregar correo
   addPhone: Agregar teléfono
   addRelation: Agregar relación
+  addAddress: Agregar dirección
   remove: Quitar
   cancel: Cancelar
   create: Crear
@@ -107,6 +108,15 @@ form:
   deleteConfirm: "¿Borrar a {0}? No se puede deshacer."
   denied: No diste permiso para cambiar los contactos guardados en el sistema.
   error: No se pudo completar el cambio.
+  # Las partes de una dirección postal, para los campos del formulario.
+  address:
+    street: Calle y número
+    extended: Piso, depto
+    poBox: Apartado de correos
+    city: Ciudad
+    region: Provincia o estado
+    postalCode: Código postal
+    country: País
   # Los vínculos de una relación, para el selector del formulario.
   relations:
     spouse: cónyuge
