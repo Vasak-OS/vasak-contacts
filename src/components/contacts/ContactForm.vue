@@ -19,6 +19,7 @@ import type { Contact, LabeledValue } from '@/tools/address-book';
 import {
 	buildContactPatch,
 	type ContactFormState,
+	emptyAddress,
 	emptyForm,
 	formFromContact,
 } from '@/tools/contact-patch';
@@ -68,6 +69,7 @@ function labelOptions(values: string[]): SelectOption<string>[] {
 }
 const EMAIL_LABELS = computed(() => labelOptions(['home', 'work', 'other']));
 const PHONE_LABELS = computed(() => labelOptions(['cell', 'home', 'work', 'main', 'fax', 'other']));
+const ADDRESS_LABELS = computed(() => labelOptions(['home', 'work', 'other']));
 const RELATION_LABELS = computed<SelectOption<string>[]>(() =>
 	[
 		'spouse',
@@ -103,6 +105,7 @@ watch(
 		form.note = base.note;
 		form.emails = base.emails;
 		form.phones = base.phones;
+		form.addresses = base.addresses;
 		form.related = base.related;
 		// Al crear, se preselecciona la primera libreta (si hay una sola, queda
 		// resuelta sin que la persona elija).
@@ -117,7 +120,7 @@ function addRow(list: LabeledValue[], label: string) {
 }
 
 /** Saca una fila de una de las listas editables. */
-function removeRow(list: LabeledValue[], index: number) {
+function removeRow<T>(list: T[], index: number) {
 	list.splice(index, 1);
 }
 
@@ -269,6 +272,76 @@ function submit() {
               icon-type="symbol"
               :label="t('form.addPhone')"
               @click="addRow(form.phones, 'cell')" />
+          </fieldset>
+
+          <!-- Direcciones: un bloque por dirección, con su etiqueta y las siete
+               partes del `ADR`. Los campos de cada parte van de a dos cuando
+               hay lugar y de a uno cuando el formulario se angosta. -->
+          <fieldset class="flex flex-col gap-2" data-testid="address-fields">
+            <legend class="font-title text-body-s text-tx-muted">{{ t('contact.addresses') }}</legend>
+            <div
+              v-for="(address, i) in form.addresses"
+              :key="`address-${i}`"
+              class="flex flex-col gap-2 rounded-corner-m border border-ui-line-weak p-2">
+              <div class="flex items-center gap-2">
+                <SelectField
+                  v-model="address.label"
+                  :options="ADDRESS_LABELS"
+                  class="w-28 shrink-0" />
+                <span class="min-w-0 flex-1" />
+                <ActionButton
+                  variant="ghost"
+                  size="sm"
+                  icon="list-remove"
+                  icon-type="symbol"
+                  :label="t('form.remove')"
+                  @click="removeRow(form.addresses, i)" />
+              </div>
+              <div class="grid grid-cols-2 gap-2 @max-[22rem]:grid-cols-1">
+                <TextInput
+                  v-model="address.street"
+                  :ariaLabel="t('form.address.street')"
+                  :placeholder="t('form.address.street')"
+                  class="col-span-full min-w-0" />
+                <TextInput
+                  v-model="address.extended"
+                  :ariaLabel="t('form.address.extended')"
+                  :placeholder="t('form.address.extended')"
+                  class="min-w-0" />
+                <TextInput
+                  v-model="address.po_box"
+                  :ariaLabel="t('form.address.poBox')"
+                  :placeholder="t('form.address.poBox')"
+                  class="min-w-0" />
+                <TextInput
+                  v-model="address.locality"
+                  :ariaLabel="t('form.address.city')"
+                  :placeholder="t('form.address.city')"
+                  class="min-w-0" />
+                <TextInput
+                  v-model="address.region"
+                  :ariaLabel="t('form.address.region')"
+                  :placeholder="t('form.address.region')"
+                  class="min-w-0" />
+                <TextInput
+                  v-model="address.postal_code"
+                  :ariaLabel="t('form.address.postalCode')"
+                  :placeholder="t('form.address.postalCode')"
+                  class="min-w-0" />
+                <TextInput
+                  v-model="address.country"
+                  :ariaLabel="t('form.address.country')"
+                  :placeholder="t('form.address.country')"
+                  class="min-w-0" />
+              </div>
+            </div>
+            <ActionButton
+              variant="ghost"
+              size="sm"
+              icon="list-add"
+              icon-type="symbol"
+              :label="t('form.addAddress')"
+              @click="form.addresses.push(emptyAddress('home'))" />
           </fieldset>
 
           <!-- Relaciones: el vínculo en la etiqueta, el nombre en el valor. -->

@@ -9,13 +9,16 @@
  * ── La forma del parche (A0, en main) ────────────────────────────────────────
  *
  * Cada campo: **ausente no toca, `null` saca, un valor fija**. El parche sólo
- * nombra los seis campos que el formulario maneja; lo demás de la tarjeta
- * —direcciones, fechas, foto, redes— no se nombra y por eso **no se toca**. Eso
+ * nombra los campos que el formulario maneja; lo demás de la tarjeta
+ * —fechas, foto, redes— no se nombra y por eso **no se toca**. Eso
  * es la escritura conservadora: la ventana no reescribe lo que no muestra.
  *
  * - `full_name`, `organization`, `note`: texto; vacío saca (`null`).
  * - `emails`, `phones`: lista de `{ value, label? }`; vacía saca todas (`null`).
  * - `related`: lista de `{ label, value }`.
+ * - `addresses`: lista de `{ label?, po_box, extended, street, city, region,
+ *   postal_code, country }`; vacía saca todas (`null`). Las direcciones sí se
+ *   precargan al editar, así que vacía es «las quitó», no «no las vio».
  *
  * ── `related` y por qué se omite al editar ───────────────────────────────────
  *
@@ -28,7 +31,7 @@
  * falta.
  */
 
-import type { LabeledValue } from '@/tools/address-book';
+import type { Address, LabeledValue } from '@/tools/address-book';
 
 /** Si el parche crea un contacto nuevo o edita uno que ya existe. */
 export type PatchMode = 'create' | 'edit';
@@ -40,6 +43,8 @@ export interface ContactFormState {
 	note: string;
 	emails: LabeledValue[];
 	phones: LabeledValue[];
+	/** Direcciones postales (`ADR`), con sus siete partes y la etiqueta. */
+	addresses: Address[];
 	/** Relaciones: `label` es el vínculo (cónyuge, hijo…) y `value` el nombre. */
 	related: LabeledValue[];
 }
@@ -52,6 +57,7 @@ export function emptyForm(overrides: Partial<ContactFormState> = {}): ContactFor
 		note: '',
 		emails: [],
 		phones: [],
+		addresses: [],
 		related: [],
 		...overrides,
 	};
@@ -85,6 +91,41 @@ function list(entries: LabeledValue[]): PatchItem[] | null {
 	return items.length > 0 ? items : null;
 }
 
+/** Una dirección vacía para agregar una fila: sólo la etiqueta. */
+export function emptyAddress(label: string): Address {
+	return {
+		label,
+		po_box: '',
+		extended: '',
+		street: '',
+		locality: '',
+		region: '',
+		postal_code: '',
+		country: '',
+	};
+}
+
+/**
+ * Las direcciones del parche: una por fila con algo escrito. El servicio llama
+ * `city` a lo que la lectura llama `locality` (la ciudad del `ADR`).
+ */
+function addressList(entries: Address[]): Record<string, string>[] | null {
+	const items = entries
+		.map((a) => ({
+			label: a.label.trim(),
+			po_box: a.po_box.trim(),
+			extended: a.extended.trim(),
+			street: a.street.trim(),
+			city: a.locality.trim(),
+			region: a.region.trim(),
+			postal_code: a.postal_code.trim(),
+			country: a.country.trim(),
+		}))
+		// Una fila con sólo la etiqueta no es una dirección.
+		.filter(({ label: _label, ...parts }) => Object.values(parts).some((v) => v));
+	return items.length > 0 ? items : null;
+}
+
 /** Lo que se pasa para armar el parche: el modo y, al editar, el número local. */
 export interface PatchTarget {
 	mode: PatchMode;
@@ -108,6 +149,7 @@ export function buildContactPatch(
 		note: text(form.note),
 		emails: list(form.emails),
 		phones: list(form.phones),
+		addresses: addressList(form.addresses),
 	};
 
 	const related = list(form.related);
@@ -138,6 +180,7 @@ export function formFromContact(contact: {
 	notes: string;
 	emails: LabeledValue[];
 	phones: LabeledValue[];
+	addresses: Address[];
 }): ContactFormState {
 	return {
 		fullName: contact.name,
@@ -146,6 +189,7 @@ export function formFromContact(contact: {
 		// Copias, para no mutar lo que vino del programa al editar las filas.
 		emails: contact.emails.map((e) => ({ label: e.label, value: e.value })),
 		phones: contact.phones.map((p) => ({ label: p.label, value: p.value })),
+		addresses: contact.addresses.map((a) => ({ ...a })),
 		related: [],
 	};
 }

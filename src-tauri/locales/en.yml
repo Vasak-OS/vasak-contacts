@@ -79,6 +79,7 @@ form:
   addEmail: Add email
   addPhone: Add phone
   addRelation: Add relationship
+  addAddress: Add address
   remove: Remove
   cancel: Cancel
   create: Create
@@ -90,6 +91,15 @@ form:
   deleteConfirm: "Delete {0}? This cannot be undone."
   denied: You have not allowed changing the contacts stored on the system.
   error: The change could not be completed.
+  # Las partes de una dirección postal, para los campos del formulario.
+  address:
+    street: Street and number
+    extended: Apartment, suite
+    poBox: PO box
+    city: City
+    region: State or province
+    postalCode: Postal code
+    country: Country
   # Los vínculos de una relación, para el selector del formulario.
   relations:
     spouse: spouse
