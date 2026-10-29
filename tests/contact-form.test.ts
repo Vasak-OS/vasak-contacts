@@ -83,6 +83,11 @@ describe('el formulario de contacto', () => {
 	});
 });
 
+/** El placeholder de un campo de texto (la clave i18n que identifica la parte). */
+function placeholderOf(input: { props: () => unknown }): string {
+	return (input.props() as { placeholder: string }).placeholder;
+}
+
 /** Los componentes (de un tipo) que viven dentro del bloque de direcciones. */
 function inAddresses(
 	wrapper: ReturnType<typeof form>,
@@ -149,7 +154,7 @@ describe('las direcciones del formulario', () => {
 			'form.address.country': 'Argentina',
 		};
 		for (const input of inAddresses(wrapper, TextInput)) {
-			await input.setValue(values[input.props('placeholder') as string]);
+			await input.setValue(values[placeholderOf(input)]);
 		}
 
 		const patch = await savedPatch(wrapper, 'form.create');
@@ -179,7 +184,7 @@ describe('las direcciones del formulario', () => {
 			}),
 		});
 		const street = inAddresses(wrapper, TextInput).find(
-			(i) => i.props('placeholder') === 'form.address.street'
+			(i) => placeholderOf(i) === 'form.address.street'
 		);
 		expect((street?.props() as Record<string, unknown>).modelValue).toBe('Calle 1');
 		wrapper.unmount();
