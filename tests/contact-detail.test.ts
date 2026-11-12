@@ -399,6 +399,17 @@ describe('el organigrama', () => {
 		expect(levels[2][0]).toContain('Ana Pérez');
 	});
 
+	test('cada nodo del árbol lleva aria-selected, «true» sólo en el contacto actual', () => {
+		const abuela = emptyContact({ uid: 'abu', name: 'Abu Ela', organization: ORG });
+		const jefaConJefa = { ...jefa, related: [{ kind: 'manager' as const, name: '', target_uid: 'abu' }] };
+		const items = showChart(ana, [abuela, jefaConJefa, ana])
+			.find('[data-testid="org-chart"]')
+			.findAll('[role="treeitem"]');
+		expect(items).toHaveLength(3);
+		expect(items.map((n) => n.attributes('aria-selected'))).toEqual(['false', 'false', 'true']);
+		expect(items[2].text()).toContain('Ana Pérez');
+	});
+
 	test('cada «abrir» dice a quién abre', async () => {
 		await I18n.getInstance().load();
 		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');

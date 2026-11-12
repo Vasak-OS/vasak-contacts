@@ -681,6 +681,7 @@ const kindLabel = computed(() => {
               :key="`org-${node.contact.uid}`"
               role="treeitem"
               :aria-level="node.depth + 1"
+              :aria-selected="node.current"
               class="flex items-center gap-2 @max-[12rem]:flex-wrap"
               :class="NARROW_ROW_WRAP"
               :style="{ paddingInlineStart: `${node.depth * 1.25}rem` }">
