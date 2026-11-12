@@ -1,4 +1,6 @@
 <script lang="ts" setup>
+import { invoke } from '@tauri-apps/api/core';
+import { save } from '@tauri-apps/plugin-dialog';
 import { useI18n } from '@vasakgroup/tauri-plugin-i18n';
 import {
 	ActionButton,
@@ -21,6 +23,7 @@ import { useNarrowRow } from '@/composables/use-narrow-row';
 import { useOwnCard } from '@/composables/use-own-card';
 import WindowAppLayout from '@/layouts/WindowAppLayout.vue';
 import type { Contact } from '@/tools/address-book';
+import { contactsToCsv } from '@/tools/csv';
 import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import { type Pane, paneClass } from '@/tools/narrow-layout';
 import { isStorePermissionDenied, reaskNoticeKey } from '@/tools/store-permission';
@@ -182,6 +185,35 @@ async function removeContact(contact: Contact) {
 	actionNotice.value = error ? writeErrorText(error) : '';
 }
 
+/** Mientras se exporta: desactiva el botón para no abrir dos diálogos. */
+const exporting = ref(false);
+/**
+ * Exporta a CSV lo que se está viendo —respeta los filtros y la búsqueda—. La
+ * ruta la elige la persona en el diálogo del sistema; si cancela, no pasa nada.
+ * El archivo lo escribe el programa (`exportar_csv`), no la ventana.
+ */
+async function exportarCsv() {
+	if (exporting.value || visibles.value.length === 0) {
+		return;
+	}
+	exporting.value = true;
+	actionNotice.value = '';
+	try {
+		const ruta = await save({
+			defaultPath: 'contactos.csv',
+			filters: [{ name: 'CSV', extensions: ['csv'] }],
+		});
+		if (!ruta) {
+			return;
+		}
+		await invoke('exportar_csv', { ruta, csv: contactsToCsv(visibles.value) });
+	} catch (e) {
+		actionNotice.value = interpolar(t('exportar.error'), String(e));
+	} finally {
+		exporting.value = false;
+	}
+}
+
 /**
  * El botón de «volver a pedir el permiso»: mientras pide se desactiva —no es
  * instantáneo y dos clics seguidos chocan con el techo de uno por minuto— y, si
@@ -294,6 +326,17 @@ onMounted(cargar);
         :icon-alt="t('form.newTitle')"
         :title="t('form.newTitle')"
         @click="openNew()" />
+      <!-- Exportar a CSV lo que se está viendo. Sólo si hay algo que exportar. -->
+      <ActionButton
+        v-if="!sinPermiso && visibles.length > 0"
+        variant="ghost"
+        label=""
+        icon="document-save"
+        :loading="exporting"
+        :icon-alt="t('exportar.csv')"
+        :title="t('exportar.csv')"
+        v-bind="{ 'data-testid': 'export-csv' }"
+        @click="exportarCsv()" />
       <!-- Mi código QR: el de la tarjeta propia. Sólo si hay agenda que mirar. -->
       <ActionButton
         v-if="!sinPermiso && contactos.length > 0"

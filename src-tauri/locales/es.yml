@@ -155,6 +155,11 @@ duplicados:
   # `{0}` son los nombres de las tarjetas que se unieron.
   unidaCuerpo: "Unida de: {0}. La unión es local y se puede deshacer."
   separar: Separar
+# Exportar la agenda a un archivo.
+exportar:
+  csv: Exportar a CSV
+  # `{0}` es el motivo del error.
+  error: "No se pudo exportar: {0}"
 # Los botones de ir y volver entre columnas, con la ventana angosta.
 nav:
   accounts: Cuentas

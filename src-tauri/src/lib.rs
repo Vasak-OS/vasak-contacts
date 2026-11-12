@@ -39,6 +39,8 @@ pub fn run() {
         .plugin(tauri_plugin_config_manager::init())
         .plugin(tauri_plugin_vicons::init())
         .plugin(tauri_plugin_shell::init())
+        // El diálogo del sistema para elegir dónde guardar lo exportado.
+        .plugin(tauri_plugin_dialog::init())
         // El almacén del sistema: comprueba al sincronizador, atiende
         // «Actualizar» y el estado, y avisa de lo nuevo de los contactos.
         .plugin(tauri_plugin_vsk_store::init(&["contacts"]))
@@ -56,6 +58,7 @@ pub fn run() {
             photos::contact_photo,
             qr::generate_vcard_qr,
             commands::own_card_address,
+            commands::exportar_csv,
             commands::webkit::tune_webview,
         ])
         .setup(|app| {
