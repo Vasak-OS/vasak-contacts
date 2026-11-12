@@ -101,3 +101,34 @@ describe('filtrar por categoría', () => {
 		expect(view.emitted('clear-categories')).toHaveLength(1);
 	});
 });
+
+describe('posibles repetidos', () => {
+	const section = (view: VueWrapper) => view.find('[data-testid="duplicates"]');
+
+	// En las pruebas no se cargan los textos: `t` devuelve la clave, y eso
+	// alcanza para ver cuál (singular o plural) se eligió.
+	test('aparece con repetidos, con la clave en singular o plural según el conteo', () => {
+		expect(section(panel({ duplicateCount: 2 })).text()).toContain('duplicados.posiblesOther');
+		expect(section(panel({ duplicateCount: 1 })).text()).toContain('duplicados.posiblesOne');
+	});
+
+	test('sin repetidos y con el filtro apagado no se dibuja', () => {
+		expect(section(panel({ duplicateCount: 0, onlyDuplicates: false })).exists()).toBe(false);
+		expect(section(panel()).exists()).toBe(false);
+	});
+
+	test('con el filtro prendido sigue visible aunque no haya repetidos, para poder volver', () => {
+		const view = panel({ duplicateCount: 0, onlyDuplicates: true });
+		expect(section(view).text()).toContain('duplicados.verTodos');
+		expect(view.find('[data-testid="duplicates"] button').attributes('aria-pressed')).toBe('true');
+	});
+
+	test('el botón avisa toggle-duplicates y aria-pressed refleja el estado', async () => {
+		const view = panel({ duplicateCount: 2, onlyDuplicates: false });
+		const button = view.find('[data-testid="duplicates"] button');
+		expect(button.attributes('aria-pressed')).toBe('false');
+
+		await button.trigger('click');
+		expect(view.emitted('toggle-duplicates')).toHaveLength(1);
+	});
+});
