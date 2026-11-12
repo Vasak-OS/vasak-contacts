@@ -36,7 +36,7 @@ import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
 import { interpolar } from '@/tools/interpolar';
 import { formatInteractionDate } from '@/tools/mail-history';
 import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
-import { resolveRelated } from '@/tools/relations';
+import { type ResolvedRelation, relationsFor } from '@/tools/relations';
 import { reaskNoticeKey } from '@/tools/store-permission';
 import { syncBadge } from '@/tools/sync-badge';
 
@@ -168,13 +168,28 @@ function relationLabel(kind: string): string {
 }
 
 /**
- * Las relaciones a mostrar: las del contacto, con la otra ficha resuelta cuando
- * se puede enlazar. Se dejan afuera las que no tienen nada que mostrar —una
- * referencia por uid a una tarjeta que no está cargada.
+ * La etiqueta delante del nombre. De frente, el tipo: «Jefe/a · Ana». Al revés,
+ * vista desde la otra punta: «Jefe/a de Ana» —esta persona es el jefe de Ana.
+ */
+function relationPrefix(relation: ResolvedRelation): string {
+	const label = relationLabel(relation.kind);
+	if (!label) {
+		return '';
+	}
+	return relation.direction === 'inverse'
+		? `${interpolar(t('contact.relationInverse'), label)} `
+		: `${label} · `;
+}
+
+/**
+ * Las relaciones a mostrar: las del contacto y las que otros declaran hacia él,
+ * con la otra ficha resuelta cuando se puede enlazar. Se dejan afuera las que no
+ * tienen nada que mostrar —una referencia por uid a una tarjeta que no está
+ * cargada.
  */
 const relations = computed(() =>
 	props.contact
-		? resolveRelated(props.contact, props.allContacts ?? []).filter((r) => r.name || r.contact)
+		? relationsFor(props.contact, props.allContacts ?? []).filter((r) => r.name || r.contact)
 		: []
 );
 
@@ -630,7 +645,7 @@ const kindLabel = computed(() => {
             class="flex items-center gap-2 @max-[12rem]:flex-wrap"
             :class="NARROW_ROW_WRAP">
             <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full" :class="[NARROW_WRAP, NARROW_FULL_LINE]">
-              <span class="text-tx-muted text-xs">{{ relation.kind ? `${relationLabel(relation.kind)} · ` : '' }}</span>{{ relation.name }}
+              <span class="text-tx-muted text-xs">{{ relationPrefix(relation) }}</span>{{ relation.name }}
             </span>
             <ActionButton
               class="shrink-0"

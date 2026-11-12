@@ -43,6 +43,8 @@ contact:
   copied: Copiado
   open: Abrir
   relations: Relaciones
+  # `{0}` es el tipo de relación, para mostrarla desde el otro lado: «jefe/a de».
+  relationInverse: "{0} de"
   # `{0}` es el nombre del contacto.
   photoAlt: "Foto de {0}"
   photoTooLarge: La foto de esta tarjeta es demasiado grande para mostrarla.

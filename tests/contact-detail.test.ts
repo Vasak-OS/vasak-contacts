@@ -182,6 +182,45 @@ describe('las relaciones', () => {
 		expect(view.find('[data-testid="relations"]').exists()).toBe(false);
 	});
 
+	// A declara que Luis es su pareja; en la ficha de Luis sale la inversa.
+	const ana = emptyContact({
+		uid: 'ana',
+		name: 'Ana Pérez',
+		related: [{ kind: 'spouse', name: '', target_uid: 'luis' }],
+	});
+
+	function showAsLuis(allContacts: Contact[], related: Relationship[] = []) {
+		wrapper = mount(ContactDetail, {
+			props: { contact: emptyContact({ ...luis, related }), allContacts },
+		});
+		return wrapper;
+	}
+
+	test('una relación inversa se muestra con el prefijo de «relationInverse»', () => {
+		const text = showAsLuis([ana, luis]).find('[data-testid="relations"]').text();
+		// t() sin cargar devuelve la clave cruda (sin {0}): interpolar la deja igual.
+		expect(text).toContain('Ana Pérez');
+		expect(text).toContain('contact.relationInverse');
+		expect(text).not.toContain('form.relations.spouse ·');
+	});
+
+	test('la inversa resuelta tiene «abrir» y emite open con quien la declara', async () => {
+		const view = showAsLuis([ana, luis]);
+		const open = view
+			.findAll('[data-testid="relations"] button')
+			.find((b) => b.text() === 'contact.open');
+		expect(open).toBeDefined();
+		await open?.trigger('click');
+		expect(view.emitted('open')).toEqual([[ana]]);
+	});
+
+	test('una relación mutua se muestra una sola vez', () => {
+		const view = showAsLuis([ana, luis], [{ kind: 'spouse', name: '', target_uid: 'ana' }]);
+		const text = view.find('[data-testid="relations"]').text();
+		expect(text.split('Ana Pérez')).toHaveLength(2);
+		expect(text).not.toContain('contact.relationInverse');
+	});
+
 	test('un tipo desconocido se muestra tal cual, sin traducir', () => {
 		const view = showRelated([{ kind: 'tutor', name: 'Marta', target_uid: '' }], []);
 		const text = view.find('[data-testid="relations"]').text();
