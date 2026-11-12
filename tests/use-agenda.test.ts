@@ -565,3 +565,54 @@ describe('crear, editar y borrar', () => {
 		expect(contactos.value.map((c) => c.name)).toEqual(['Ana Pérez']);
 	});
 });
+
+describe('posibles repetidos', () => {
+	const mail = (value: string) => [{ label: '', value }];
+	const ANA_1 = emptyContact({
+		name: 'Ana Pérez',
+		sort_key: 'Pérez, Ana',
+		url: 'store:a1:https://x/ana1.vcf',
+		emails: mail('ana@x.com'),
+	});
+	const ANA_2 = emptyContact({
+		name: 'Ana Perez',
+		sort_key: 'Perez, Ana',
+		url: 'store:a2:https://x/ana2.vcf',
+		emails: mail('ANA@x.com'),
+	});
+	const LUIS = emptyContact({ name: 'Luis Gil', sort_key: 'Gil, Luis', url: 'store:a1:https://x/luis.vcf' });
+
+	function answerWithRepeated() {
+		answerAccounts({ a1: [ANA_1, LUIS], a2: [ANA_2] });
+	}
+
+	test('cuenta las tarjetas repetidas y el filtro está apagado al empezar', async () => {
+		answerWithRepeated();
+		const { duplicateCount, onlyDuplicates, visibles, cargar } = agenda();
+		await cargar();
+
+		expect(duplicateCount.value).toBe(2);
+		expect(onlyDuplicates.value).toBe(false);
+		expect(visibles.value).toHaveLength(3);
+	});
+
+	test('toggleOnlyDuplicates deja sólo a los candidatos, y vuelve', async () => {
+		answerWithRepeated();
+		const { visibles, cargar, toggleOnlyDuplicates } = agenda();
+		await cargar();
+
+		toggleOnlyDuplicates();
+		expect(visibles.value.map((c) => c.name).sort()).toEqual(['Ana Perez', 'Ana Pérez']);
+
+		toggleOnlyDuplicates();
+		expect(visibles.value).toHaveLength(3);
+	});
+
+	test('sin repetidos el conteo es cero', async () => {
+		answerAccounts({ a1: [ANA, BRUNO] });
+		const { duplicateCount, cargar } = agenda();
+		await cargar();
+
+		expect(duplicateCount.value).toBe(0);
+	});
+});

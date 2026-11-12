@@ -18,7 +18,7 @@ import {
 } from '@vasakgroup/vue-libvasak';
 import { computed } from 'vue';
 import type { Cuenta } from '@/composables/use-agenda';
-import { interpolar } from '@/tools/interpolar';
+import { claveSegunCantidad, interpolar } from '@/tools/interpolar';
 import type { AddressBook } from '@/tools/library-filter';
 import { NARROW_ONLY, NARROW_WRAP } from '@/tools/narrow-layout';
 
@@ -35,6 +35,10 @@ const props = defineProps<{
 	categories?: string[];
 	/** Las categorías elegidas. */
 	selectedCategories?: Set<string>;
+	/** Cuántas tarjetas parecen repetidas, para el aviso discreto. */
+	duplicateCount?: number;
+	/** Si está activo el filtro de posibles repetidos. */
+	onlyDuplicates?: boolean;
 }>();
 const emit = defineEmits<{
 	/** Ir a la lista, con la ventana angosta. */
@@ -45,6 +49,8 @@ const emit = defineEmits<{
 	'toggle-category': [category: string];
 	/** Sacar el filtro de categorías entero. */
 	'clear-categories': [];
+	/** Prender o apagar el filtro de posibles repetidos. */
+	'toggle-duplicates': [];
 }>();
 
 const { t, locale } = useI18n();
@@ -149,6 +155,25 @@ function textOf(line: SyncLine): string {
           </span>
         </li>
       </ul>
+    </section>
+
+    <!-- Aviso discreto de posibles repetidos: un botón que filtra la lista a los
+         candidatos y vuelve. Es una propuesta, no fusiona nada (la fusión viene
+         después). Sólo aparece cuando hay repetidos, o mientras el filtro esté
+         activo, para no dejar la lista filtrada sin forma de volver. -->
+    <section
+      v-if="(duplicateCount ?? 0) > 0 || onlyDuplicates"
+      class="flex flex-col gap-2"
+      data-testid="duplicates">
+      <ActionButton
+        variant="ghost"
+        size="sm"
+        full-width
+        :label="onlyDuplicates
+          ? t('duplicados.verTodos')
+          : interpolar(t(claveSegunCantidad('duplicados.posibles', duplicateCount ?? 0)), duplicateCount ?? 0)"
+        v-bind="{ 'aria-pressed': onlyDuplicates ? 'true' : 'false' }"
+        @click="emit('toggle-duplicates')" />
     </section>
 
     <!-- Elegir qué libretas se ven: una casilla por libreta. Es preferencia de

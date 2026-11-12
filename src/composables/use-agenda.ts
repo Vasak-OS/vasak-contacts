@@ -11,6 +11,7 @@ import {
 import { computed, onScopeDispose, ref } from 'vue';
 import { type Contact, searchContacts, sortContacts } from '@/tools/address-book';
 import type { ConflictChoice, ConflictDetail } from '@/tools/conflict';
+import { duplicateCount as countDuplicates, findDuplicates } from '@/tools/duplicates';
 import {
 	type AddressBook,
 	collectAddressBooks,
@@ -106,8 +107,32 @@ export function useAgenda(locale: () => string) {
 	const afterCategories = computed(() =>
 		filterByCategories(afterBooks.value, selectedCategories.value)
 	);
+
+	/**
+	 * Los posibles repetidos entre lo que se ve. Se detecta sobre lo ya filtrado
+	 * por libreta y categoría: proponer fusionar algo que está oculto confundiría.
+	 * Es una propuesta —ver `findDuplicates`—, no una fusión: no toca nada.
+	 */
+	const duplicateGroups = computed(() => findDuplicates(afterCategories.value));
+	/** Cuántas tarjetas caen en algún grupo, para el aviso discreto. */
+	const duplicateCount = computed(() => countDuplicates(duplicateGroups.value));
+	/** Mostrar sólo los posibles repetidos: un filtro del momento, apagado por defecto. */
+	const onlyDuplicates = ref(false);
+	const duplicateMembers = computed(
+		() => new Set(duplicateGroups.value.flatMap((g) => g.contacts))
+	);
+	const afterDuplicates = computed(() =>
+		onlyDuplicates.value
+			? afterCategories.value.filter((c) => duplicateMembers.value.has(c))
+			: afterCategories.value
+	);
+	/** Prende o apaga el filtro de posibles repetidos. */
+	function toggleOnlyDuplicates() {
+		onlyDuplicates.value = !onlyDuplicates.value;
+	}
+
 	/** Ordenados con el comparador del idioma de la sesión. Ver `address-book.ts`. */
-	const enOrden = computed(() => sortContacts(afterCategories.value, locale()));
+	const enOrden = computed(() => sortContacts(afterDuplicates.value, locale()));
 	const visibles = computed(() => searchContacts(enOrden.value, consulta.value));
 
 	/** Oculta o vuelve a mostrar una libreta, y recuerda la decisión. */
@@ -466,5 +491,8 @@ export function useAgenda(locale: () => string) {
 		toggleBook,
 		toggleCategory,
 		clearCategories,
+		duplicateCount,
+		onlyDuplicates,
+		toggleOnlyDuplicates,
 	};
 }

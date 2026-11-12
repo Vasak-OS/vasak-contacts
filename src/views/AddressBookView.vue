@@ -52,6 +52,9 @@ const {
 	toggleBook,
 	toggleCategory,
 	clearCategories,
+	duplicateCount,
+	onlyDuplicates,
+	toggleOnlyDuplicates,
 } = useAgenda(() => locale.value);
 
 /**
@@ -386,12 +389,15 @@ onMounted(cargar);
         :hidden-books="hiddenBooks"
         :categories="categories"
         :selected-categories="selectedCategories"
+        :duplicate-count="duplicateCount"
+        :only-duplicates="onlyDuplicates"
         v-bind="{ 'data-pane': 'accounts' }"
         :class="paneClass('accounts', pane)"
         @forward="go('list')"
         @toggle-book="toggleBook"
         @toggle-category="toggleCategory"
-        @clear-categories="clearCategories" />
+        @clear-categories="clearCategories"
+        @toggle-duplicates="toggleOnlyDuplicates" />
       <ContactList
         :contacts="visibles"
         :selected="elegido"

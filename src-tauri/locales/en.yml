@@ -122,6 +122,12 @@ filtros:
   libretas: Address books
   categorias: Categories
   limpiarCategorias: Clear the category filter
+# El aviso discreto de posibles tarjetas repetidas, en el panel de cuentas.
+duplicados:
+  # `{0}` es cuántas tarjetas parecen repetidas.
+  posiblesOne: "{0} possible duplicate"
+  posiblesOther: "{0} possible duplicates"
+  verTodos: Show all contacts
 # Los botones de ir y volver entre columnas, con la ventana angosta.
 nav:
   accounts: Accounts

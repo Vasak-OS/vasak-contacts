@@ -139,6 +139,12 @@ filtros:
   libretas: Libretas
   categorias: Categorías
   limpiarCategorias: Quitar el filtro de categorías
+# El aviso discreto de posibles tarjetas repetidas, en el panel de cuentas.
+duplicados:
+  # `{0}` es cuántas tarjetas parecen repetidas.
+  posiblesOne: "{0} posible repetido"
+  posiblesOther: "{0} posibles repetidos"
+  verTodos: Ver toda la agenda
 # Los botones de ir y volver entre columnas, con la ventana angosta.
 nav:
   accounts: Cuentas
