@@ -65,7 +65,7 @@ function neutralize(field: string): string {
  */
 function quote(field: string): string {
 	if (/[",\r\n]/.test(field)) {
-		return `"${field.replace(/"/g, '""')}"`;
+		return `"${field.replaceAll('"', '""')}"`;
 	}
 	return field;
 }

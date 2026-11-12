@@ -354,10 +354,20 @@ pub(crate) fn reask_error_code(error_name: Option<&str>) -> &'static str {
 /// enlace simbólico para no reemplazarlo por un archivo común (mismo criterio
 /// que `vasak-text`).
 #[tauri::command]
-pub fn exportar_csv(ruta: String, csv: String) -> Result<(), String> {
+pub async fn exportar_csv(ruta: String, csv: String) -> Result<(), String> {
+    // En un hilo aparte: Tauri 2 corre los comandos síncronos en el hilo
+    // principal, y escribir en un disco lento o de red colgaría la ventana (y la
+    // vista no podría ni mostrar que está guardando).
+    tauri::async_runtime::spawn_blocking(move || exportar_csv_impl(&ruta, &csv))
+        .await
+        .map_err(|e| format!("no se pudo guardar el archivo: {e}"))?
+}
+
+/// El trabajo de `exportar_csv`, aparte para poder probarlo sin un runtime async.
+fn exportar_csv_impl(ruta: &str, csv: &str) -> Result<(), String> {
     let mut contenido = String::from("\u{feff}");
-    contenido.push_str(&csv);
-    escribir_atomico(std::path::Path::new(&ruta), contenido.as_bytes())
+    contenido.push_str(csv);
+    escribir_atomico(std::path::Path::new(ruta), contenido.as_bytes())
         .map_err(|e| format!("no se pudo guardar el archivo: {e}"))
 }
 
@@ -384,11 +394,24 @@ fn escribir_atomico(ruta: &std::path::Path, contenido: &[u8]) -> std::io::Result
     let resultado = (|| -> std::io::Result<()> {
         let mut archivo = crear_temporal(&temporal)?;
         archivo.write_all(contenido)?;
-        archivo.sync_all()?;
+        // Los permisos se cambian por el descriptor abierto, no por la ruta:
+        // `std::fs::set_permissions` sobre la ruta seguiría un enlace que un
+        // atacante hubiera puesto en el nombre del temporal tras crearlo, y le
+        // aplicaría a un archivo ajeno los permisos (quizá de lectura pública) del
+        // CSV anterior. El `File` apunta al inodo que creamos, no a lo que diga el
+        // nombre ahora.
         if let Some(permisos) = &permisos {
-            std::fs::set_permissions(&temporal, permisos.clone())?;
+            archivo.set_permissions(permisos.clone())?;
         }
-        std::fs::rename(&temporal, &real)
+        // `sync_all` después de los permisos, para que también persistan.
+        archivo.sync_all()?;
+        std::fs::rename(&temporal, &real)?;
+        // Sincronizar el directorio: en Linux, sincronizar el archivo no asegura
+        // que su entrada —la que creó el `rename`— sobreviva a un corte de luz.
+        if let Ok(dir) = std::fs::File::open(directorio) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
     })();
     if resultado.is_err() {
         let _ = std::fs::remove_file(&temporal);
@@ -530,7 +553,7 @@ mod tests {
         let dir = directorio("bom");
         let ruta = dir.join("contactos.csv");
 
-        exportar_csv(ruta.to_string_lossy().into_owned(), "Name\r\nÁlvaro".into()).unwrap();
+        exportar_csv_impl(&ruta.to_string_lossy(), "Name\r\nÁlvaro").unwrap();
 
         assert_eq!(
             std::fs::read(&ruta).unwrap(),

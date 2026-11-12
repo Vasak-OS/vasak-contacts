@@ -199,6 +199,11 @@ async function exportarCsv() {
 	exporting.value = true;
 	actionNotice.value = '';
 	try {
+		// El CSV se arma ANTES de abrir el diálogo: mientras `save()` espera, una
+		// recarga del almacén (`onStoreChanged` → `cargar()`) puede reasignar
+		// `contactos` y dejar `visibles` vacío, y entonces se exportaría una
+		// agenda vacía sobre el archivo elegido.
+		const csv = contactsToCsv(visibles.value);
 		const ruta = await save({
 			defaultPath: 'contactos.csv',
 			filters: [{ name: 'CSV', extensions: ['csv'] }],
@@ -206,7 +211,7 @@ async function exportarCsv() {
 		if (!ruta) {
 			return;
 		}
-		await invoke('exportar_csv', { ruta, csv: contactsToCsv(visibles.value) });
+		await invoke('exportar_csv', { ruta, csv });
 	} catch (e) {
 		actionNotice.value = interpolar(t('exportar.error'), String(e));
 	} finally {
