@@ -770,3 +770,117 @@ fn un_email_con_multibyte_no_se_altera() {
     let c = contact_from(tarjeta, "").unwrap();
     assert_eq!(c.emails[0].value, "😀mailto:ana@ejemplo.com");
 }
+
+// ── Las relaciones ─────────────────────────────────────────────────────
+
+fn tarjeta_con(lineas: &str) -> Contact {
+    let tarjeta = format!("BEGIN:VCARD\r\nVERSION:4.0\r\nFN:Ana\r\n{lineas}END:VCARD\r\n");
+    contact_from(&tarjeta, "").unwrap()
+}
+
+#[test]
+fn un_related_con_urn_uuid_apunta_a_otra_tarjeta() {
+    let c = tarjeta_con("RELATED;TYPE=colleague;VALUE=uri:urn:uuid:abc-123\r\n");
+    assert_eq!(c.related.len(), 1);
+    assert_eq!(c.related[0].kind, "colleague");
+    assert_eq!(c.related[0].target_uid, "abc-123");
+    assert!(c.related[0].name.is_empty());
+}
+
+#[test]
+fn un_related_de_texto_es_un_nombre_suelto() {
+    let c = tarjeta_con("RELATED;TYPE=spouse;VALUE=text:Ana Pérez\r\n");
+    assert_eq!(c.related[0].kind, "spouse");
+    assert_eq!(c.related[0].name, "Ana Pérez");
+    assert!(c.related[0].target_uid.is_empty());
+}
+
+#[test]
+fn un_related_uri_que_no_es_urn_uuid_cae_a_nombre() {
+    let c = tarjeta_con("RELATED;TYPE=friend;VALUE=uri:https://ejemplo/x\r\n");
+    assert_eq!(c.related[0].name, "https://ejemplo/x");
+    assert!(c.related[0].target_uid.is_empty());
+}
+
+#[test]
+fn el_esquema_urn_uuid_no_distingue_mayusculas() {
+    let c = tarjeta_con("RELATED;TYPE=child;VALUE=uri:URN:UUID:xyz-9\r\n");
+    assert_eq!(c.related[0].target_uid, "xyz-9");
+    assert!(c.related[0].name.is_empty());
+}
+
+#[test]
+fn apple_lee_la_relacion_con_el_tipo_de_su_etiqueta() {
+    let c = tarjeta_con("item1.X-ABRELATEDNAMES:Ana Pérez\r\nitem1.X-ABLabel:_$!<Spouse>!$_\r\n");
+    assert_eq!(c.related.len(), 1);
+    assert_eq!(c.related[0].kind, "spouse");
+    assert_eq!(c.related[0].name, "Ana Pérez");
+}
+
+#[test]
+fn google_microsoft_y_evolution_dan_relaciones_de_tipo_fijo() {
+    let c = tarjeta_con(
+        "X-MANAGERSNAME:Carla\r\nX-ASSISTANTNAME:Beto\r\nX-SPOUSE:Ana\r\nX-EVOLUTION-MANAGER:Dora\r\n",
+    );
+    let par = |i: usize| (c.related[i].kind.as_str(), c.related[i].name.as_str());
+    assert_eq!(c.related.len(), 4);
+    assert_eq!(par(0), ("manager", "Carla"));
+    assert_eq!(par(1), ("assistant", "Beto"));
+    assert_eq!(par(2), ("spouse", "Ana"));
+    assert_eq!(par(3), ("manager", "Dora"));
+}
+
+/// Antes esas propiedades se ocultaban; ahora se leen como relaciones y no
+/// deben quedar además como campos personalizados.
+#[test]
+fn las_propiedades_de_relacion_no_quedan_como_campos_personalizados() {
+    let c = tarjeta_con(
+        "X-SPOUSE:Ana\r\nX-MANAGERSNAME:Carla\r\nitem1.X-ABRELATEDNAMES:Beto\r\nitem1.X-ABLabel:_$!<Friend>!$_\r\n",
+    );
+    assert_eq!(c.related.len(), 3);
+    assert!(c.custom_fields.is_empty(), "{:?}", c.custom_fields);
+}
+
+#[test]
+fn las_relaciones_tienen_tope() {
+    let lineas: String = (0..MAX_LIST_ITEMS + 10)
+        .map(|i| format!("X-SPOUSE:Persona {i}\r\n"))
+        .collect();
+    assert_eq!(tarjeta_con(&lineas).related.len(), MAX_LIST_ITEMS);
+}
+
+/// El valor viene de una tarjeta ajena: un multibyte donde caería el límite
+/// del prefijo `urn:uuid:` (o un valor más corto que él) no puede partir un
+/// carácter ni entrar en pánico, y queda como nombre.
+#[test]
+fn un_related_con_multibyte_en_el_borde_del_prefijo_queda_como_nombre() {
+    for valor in [
+        "ñ",
+        "urn:uuiñ",
+        "ñurn:uuid:abc",
+        "😀😀😀",
+        "urn:uui😀abc",
+        "urn:uu",
+    ] {
+        let r = std::panic::catch_unwind(|| {
+            tarjeta_con(&format!("RELATED;VALUE=uri:{valor}\r\n")).related
+        });
+        let related = r.unwrap_or_else(|_| panic!("{valor:?} entró en pánico"));
+        assert_eq!(related.len(), 1, "valor {valor:?}");
+        assert_eq!(related[0].name, valor);
+        assert!(related[0].target_uid.is_empty(), "valor {valor:?}");
+    }
+}
+
+#[test]
+fn el_nombre_de_una_relacion_desmedida_se_recorta() {
+    let largo = "ñ".repeat(MAX_VALUE);
+    let c = tarjeta_con(&format!(
+        "RELATED;VALUE=text:{largo}\r\nX-SPOUSE:{largo}\r\n"
+    ));
+    assert_eq!(c.related.len(), 2);
+    for r in &c.related {
+        assert!(r.name.len() <= MAX_VALUE + 4);
+        assert!(r.name.ends_with('…'));
+    }
+}

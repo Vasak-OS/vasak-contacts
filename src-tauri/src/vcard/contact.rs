@@ -77,6 +77,23 @@ pub struct LabeledValue {
     pub value: String,
 }
 
+/// Una relación con otra persona: jefe, asistente, pareja, equipo (#6).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Relationship {
+    /// El tipo en minúsculas —`spouse`, `manager`, `assistant`, `colleague`…—
+    /// como las etiquetas de `TYPE`, para que la ventana lo traduzca. Vacío si la
+    /// tarjeta no dijo cuál.
+    pub kind: String,
+    /// El nombre de la otra persona, para mostrar. En la forma `uri` de `RELATED`
+    /// no hay nombre en la tarjeta: queda vacío hasta que la ventana lo resuelva
+    /// contra los contactos cargados por el `target_uid`.
+    pub name: String,
+    /// El `UID` de la otra tarjeta, cuando la relación apunta a una
+    /// (`RELATED;VALUE=uri:urn:uuid:<uid>`). Vacío cuando es sólo un nombre: dos
+    /// «Ana Pérez» son dos personas, así que no se afirma que sea esa.
+    pub target_uid: String,
+}
+
 /// Una dirección postal, con sus siete partes.
 ///
 /// Se guardan separadas y no ya armadas en renglones: cómo se escribe una
@@ -222,6 +239,11 @@ pub struct Contact {
     pub geo: String,
     #[serde(default)]
     pub categories: Vec<String>,
+    /// Las relaciones con otras personas (#6): jefe, asistente, pareja, equipo.
+    /// Se leen de `RELATED` (vCard 4.0), de `X-ABRELATEDNAMES` (Apple) y de
+    /// `X-MANAGERSNAME`/`X-ASSISTANTNAME`/`X-SPOUSE` (Google, Microsoft, Evolution).
+    #[serde(default)]
+    pub related: Vec<Relationship>,
     #[serde(default)]
     pub custom_fields: Vec<CustomField>,
 }
@@ -239,7 +261,6 @@ const HIDDEN_X_PROPERTIES: &[&str] = &[
     "X-ABSHOWAS",
     "X-ABADR",
     "X-ABDATE",
-    "X-ABRELATEDNAMES",
     "X-ABPERSONFLAGS",
     "X-APPLE-OMIT-YEAR",
     "X-IMAGETYPE",
@@ -247,13 +268,6 @@ const HIDDEN_X_PROPERTIES: &[&str] = &[
     "X-SHARED-PHOTO-DISPLAY-PREF",
     "X-ADDRESSBOOKSERVER-KIND",
     "X-ADDRESSBOOKSERVER-MEMBER",
-    // Las relaciones de Google, Microsoft y Evolution: son del #6.
-    "X-MANAGERSNAME",
-    "X-ASSISTANTNAME",
-    "X-SPOUSE",
-    "X-EVOLUTION-SPOUSE",
-    "X-EVOLUTION-MANAGER",
-    "X-EVOLUTION-ASSISTANT",
     // Fechas que se leen como aniversario.
     "X-ANNIVERSARY",
     "X-EVOLUTION-ANNIVERSARY",
@@ -398,6 +412,18 @@ impl ContactBuilder<'_> {
                 c.geo = geo_from(&display_value(property)).unwrap_or_default()
             }
             "CATEGORIES" => self.add_categories(property),
+            "RELATED" => self.add_related(property),
+            "X-ABRELATEDNAMES" => {
+                let kind = self.label_for(property);
+                self.add_named_relation(property, kind);
+            }
+            "X-MANAGERSNAME" | "X-EVOLUTION-MANAGER" => {
+                self.add_named_relation(property, "manager".into())
+            }
+            "X-ASSISTANTNAME" | "X-EVOLUTION-ASSISTANT" => {
+                self.add_named_relation(property, "assistant".into())
+            }
+            "X-SPOUSE" | "X-EVOLUTION-SPOUSE" => self.add_named_relation(property, "spouse".into()),
             name if is_social(name) => self.add_social(property),
             name if name.starts_with("X-") && !HIDDEN_X_PROPERTIES.contains(&name) => {
                 self.add_custom_field(property)
@@ -507,6 +533,59 @@ impl ContactBuilder<'_> {
                 categories.push(category);
             }
         }
+    }
+
+    /// `RELATED` de vCard 4.0. `VALUE=uri` con `urn:uuid:<uid>` apunta a otra
+    /// tarjeta —se guarda el uid para resolverlo—; `VALUE=text`, o un `uri` que
+    /// no sea `urn:uuid:`, es un nombre suelto que se muestra tal cual. El tipo
+    /// (`spouse`, `manager`…) sale de `TYPE`.
+    fn add_related(&mut self, property: &Property) {
+        if self.contact.related.len() >= MAX_LIST_ITEMS {
+            return;
+        }
+        let kind = clipped(&label_of(&property.params));
+        let value = display_value(property);
+        let value = value.trim();
+        let is_text = property
+            .param("value")
+            .is_some_and(|v| v.eq_ignore_ascii_case("text"));
+        let target_uid = if is_text {
+            String::new()
+        } else {
+            strip_urn_uuid(value).map(clipped).unwrap_or_default()
+        };
+        let name = if target_uid.is_empty() {
+            clipped(value)
+        } else {
+            String::new()
+        };
+        if name.is_empty() && target_uid.is_empty() {
+            return;
+        }
+        self.contact.related.push(Relationship {
+            kind,
+            name,
+            target_uid,
+        });
+    }
+
+    /// Las relaciones por nombre: `X-ABRELATEDNAMES` (Apple, el tipo viene en la
+    /// etiqueta del grupo) y `X-MANAGERSNAME`/`X-ASSISTANTNAME`/`X-SPOUSE` de
+    /// Google, Microsoft y Evolution (el tipo es fijo). Nunca apuntan a otra
+    /// tarjeta: el valor es el nombre.
+    fn add_named_relation(&mut self, property: &Property, kind: String) {
+        if self.contact.related.len() >= MAX_LIST_ITEMS {
+            return;
+        }
+        let name = clipped(display_value(property).trim());
+        if name.is_empty() {
+            return;
+        }
+        self.contact.related.push(Relationship {
+            kind,
+            name,
+            target_uid: String::new(),
+        });
     }
 
     fn add_social(&mut self, property: &Property) {
@@ -631,6 +710,17 @@ fn strip_scheme<'a>(value: &'a str, scheme: &str) -> &'a str {
         return &value[scheme.len()..];
     }
     value
+}
+
+/// El `<uid>` de `urn:uuid:<uid>`, sin importar las mayúsculas del esquema.
+/// `None` cuando no es esa forma: entonces el `RELATED` es un nombre, no una
+/// referencia a otra tarjeta.
+fn strip_urn_uuid(value: &str) -> Option<&str> {
+    const PREFIX: &str = "urn:uuid:";
+    value
+        .get(..PREFIX.len())
+        .filter(|head| head.eq_ignore_ascii_case(PREFIX))
+        .map(|_| &value[PREFIX.len()..])
 }
 
 fn push_labeled(target: &mut Vec<LabeledValue>, label: String, value: String) {
