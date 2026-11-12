@@ -52,31 +52,44 @@ function isDescendant(node: string, ancestor: string, parentOf: Map<string, stri
  * escribe la empresa distinto queda afuera. Upgrade si aparece ruido de datos:
  * normalizar la organización como se normaliza el uid.
  */
-export function orgChartFor(contact: Contact, allContacts: Contact[]): OrgNode[] {
-	const org = contact.organization.trim().toLowerCase();
-	if (!org) return [];
-	const scope = allContacts.filter((c) => c.organization.trim().toLowerCase() === org);
+/** El bosque de jefatura: de cada hijo, su padre y cómo cuelga; de cada padre, sus hijos. */
+interface Forest {
+	parentOf: Map<string, string>;
+	relationOf: Map<string, 'report' | 'assistant'>;
+	childrenOf: Map<string, string[]>;
+}
 
+/** El uid de cada contacto del alcance, el primero que lo trae. */
+function indexByUid(scope: Contact[]): Map<string, Contact> {
 	const byUid = new Map<string, Contact>();
 	for (const c of scope) {
 		const key = normalizeUid(c.uid);
 		if (key && !byUid.has(key)) byUid.set(key, c);
 	}
+	return byUid;
+}
 
-	// Un solo padre por nodo (gana el primero, determinista) y sin cerrar
-	// ciclos: así el grafo es siempre un bosque y recorrerlo termina.
-	const parentOf = new Map<string, string>();
-	const relationOf = new Map<string, 'report' | 'assistant'>();
-	const childrenOf = new Map<string, string[]>();
+/**
+ * El bosque de aristas `manager`/`assistant` entre los contactos del alcance.
+ *
+ * Un solo padre por nodo (gana el primero, determinista) y sin cerrar ciclos:
+ * así el grafo es siempre un bosque y recorrerlo termina.
+ */
+function buildForest(scope: Contact[], byUid: Map<string, Contact>): Forest {
+	const forest: Forest = { parentOf: new Map(), relationOf: new Map(), childrenOf: new Map() };
 	const addEdge = (parent: string, child: string, relation: 'report' | 'assistant') => {
-		if (parent === child || parentOf.has(child) || isDescendant(parent, child, parentOf)) return;
-		parentOf.set(child, parent);
-		relationOf.set(child, relation);
-		const kids = childrenOf.get(parent) ?? [];
+		if (
+			parent === child ||
+			forest.parentOf.has(child) ||
+			isDescendant(parent, child, forest.parentOf)
+		)
+			return;
+		forest.parentOf.set(child, parent);
+		forest.relationOf.set(child, relation);
+		const kids = forest.childrenOf.get(parent) ?? [];
 		kids.push(child);
-		childrenOf.set(parent, kids);
+		forest.childrenOf.set(parent, kids);
 	};
-
 	for (const c of scope) {
 		const cu = normalizeUid(c.uid);
 		if (!cu) continue;
@@ -87,11 +100,12 @@ export function orgChartFor(contact: Contact, allContacts: Contact[]): OrgNode[]
 			else if (r.kind === 'assistant') addEdge(cu, tu, 'assistant');
 		}
 	}
+	return forest;
+}
 
-	const cu = normalizeUid(contact.uid);
-	if (!cu || (!parentOf.has(cu) && !childrenOf.has(cu))) return [];
-
-	let root = cu;
+/** La cima del árbol de `start`: subiendo por los padres, con corte de ciclo. */
+function climbToRoot(start: string, parentOf: Map<string, string>): string {
+	let root = start;
 	const climbed = new Set<string>([root]);
 	while (parentOf.has(root)) {
 		const up = parentOf.get(root) as string;
@@ -99,6 +113,18 @@ export function orgChartFor(contact: Contact, allContacts: Contact[]): OrgNode[]
 		climbed.add(up);
 		root = up;
 	}
+	return root;
+}
+
+export function orgChartFor(contact: Contact, allContacts: Contact[]): OrgNode[] {
+	const org = contact.organization.trim().toLowerCase();
+	if (!org) return [];
+	const scope = allContacts.filter((c) => c.organization.trim().toLowerCase() === org);
+	const byUid = indexByUid(scope);
+	const { parentOf, relationOf, childrenOf } = buildForest(scope, byUid);
+
+	const cu = normalizeUid(contact.uid);
+	if (!cu || (!parentOf.has(cu) && !childrenOf.has(cu))) return [];
 
 	const out: OrgNode[] = [];
 	const visited = new Set<string>();
@@ -111,6 +137,6 @@ export function orgChartFor(contact: Contact, allContacts: Contact[]): OrgNode[]
 			visit(child, depth + 1, relationOf.get(child) ?? 'report');
 		}
 	};
-	visit(root, 0, 'root');
+	visit(climbToRoot(cu, parentOf), 0, 'root');
 	return out;
 }
