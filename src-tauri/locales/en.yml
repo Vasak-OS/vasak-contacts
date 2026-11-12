@@ -138,6 +138,11 @@ duplicados:
   # `{0}` son los nombres de las tarjetas que se unieron.
   unidaCuerpo: "Merged from: {0}. The merge is local and can be undone."
   separar: Separate
+# Exportar la agenda a un archivo.
+exportar:
+  csv: Export to CSV
+  # `{0}` es el motivo del error.
+  error: "Could not export: {0}"
 nav:
   accounts: Accounts
   contacts: Contacts

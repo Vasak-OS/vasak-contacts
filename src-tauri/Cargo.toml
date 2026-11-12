@@ -1,6 +1,6 @@
 [package]
 name = "vasak-contacts"
-version = "0.27.0"
+version = "0.28.0"
 description = "Los contactos de VasakOS"
 authors = ["Vasak Group", "Joaquin (Pato) Decima"]
 edition = "2021"
@@ -29,6 +29,7 @@ tauri-plugin-config-manager = "2.13"
 tauri-plugin-i18n-vsk = "2.3.0"
 tauri-plugin-vsk-contextual-menu = "2"
 tauri-plugin-shell = "2"
+tauri-plugin-dialog = "2"
 
 # Para la ventana sin decoración: la barra propia necesita mover y redimensionar.
 gtk = "0.18"

@@ -344,6 +344,100 @@ pub(crate) fn reask_error_code(error_name: Option<&str>) -> &'static str {
     }
 }
 
+/// Escribe el CSV exportado en la ruta que **eligió la persona** en el diálogo
+/// del sistema (`dialog.save` del lado de la ventana): la ventana nunca inventa
+/// una ruta, la trae del diálogo. Se antepone un BOM para que Excel abra el
+/// UTF-8 sin romper los acentos.
+///
+/// La escritura es atómica —a un temporal en el mismo directorio y luego
+/// `rename`— para no dejar un archivo a medias si algo se corta, y sigue el
+/// enlace simbólico para no reemplazarlo por un archivo común (mismo criterio
+/// que `vasak-text`).
+#[tauri::command]
+pub async fn exportar_csv(ruta: String, csv: String) -> Result<(), String> {
+    // En un hilo aparte: Tauri 2 corre los comandos síncronos en el hilo
+    // principal, y escribir en un disco lento o de red colgaría la ventana (y la
+    // vista no podría ni mostrar que está guardando).
+    tauri::async_runtime::spawn_blocking(move || exportar_csv_impl(&ruta, &csv))
+        .await
+        .map_err(|e| format!("no se pudo guardar el archivo: {e}"))?
+}
+
+/// El trabajo de `exportar_csv`, aparte para poder probarlo sin un runtime async.
+fn exportar_csv_impl(ruta: &str, csv: &str) -> Result<(), String> {
+    let mut contenido = String::from("\u{feff}");
+    contenido.push_str(csv);
+    escribir_atomico(std::path::Path::new(ruta), contenido.as_bytes())
+        .map_err(|e| format!("no se pudo guardar el archivo: {e}"))
+}
+
+/// Escribe a un temporal en el mismo directorio y renombra, siguiendo el enlace
+/// simbólico. `rename` sólo es atómico dentro del mismo sistema de archivos, por
+/// eso el temporal va al lado del destino.
+fn escribir_atomico(ruta: &std::path::Path, contenido: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    // `rename` no sigue el destino: sin canonicalizar, guardar sobre un enlace
+    // lo reemplazaría por un archivo común. Si la ruta no existe todavía —lo
+    // normal al exportar— `canonicalize` falla y se usa tal cual.
+    let real = std::fs::canonicalize(ruta).unwrap_or_else(|_| ruta.to_path_buf());
+    let directorio = real.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let nombre = real
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "contactos.csv".to_string());
+    let temporal = directorio.join(format!(".{nombre}.vasak-contacts.{}", std::process::id()));
+
+    // Los permisos del archivo que se reemplaza, para restaurarlos: reexportar
+    // sobre un CSV que estaba en 0600 no debe dejarlo legible por todos.
+    let permisos = std::fs::metadata(&real).ok().map(|m| m.permissions());
+
+    let resultado = (|| -> std::io::Result<()> {
+        let mut archivo = crear_temporal(&temporal)?;
+        archivo.write_all(contenido)?;
+        // Los permisos se cambian por el descriptor abierto, no por la ruta:
+        // `std::fs::set_permissions` sobre la ruta seguiría un enlace que un
+        // atacante hubiera puesto en el nombre del temporal tras crearlo, y le
+        // aplicaría a un archivo ajeno los permisos (quizá de lectura pública) del
+        // CSV anterior. El `File` apunta al inodo que creamos, no a lo que diga el
+        // nombre ahora.
+        if let Some(permisos) = &permisos {
+            archivo.set_permissions(permisos.clone())?;
+        }
+        // `sync_all` después de los permisos, para que también persistan.
+        archivo.sync_all()?;
+        std::fs::rename(&temporal, &real)?;
+        // Sincronizar el directorio: en Linux, sincronizar el archivo no asegura
+        // que su entrada —la que creó el `rename`— sobreviva a un corte de luz.
+        if let Ok(dir) = std::fs::File::open(directorio) {
+            let _ = dir.sync_all();
+        }
+        Ok(())
+    })();
+    if resultado.is_err() {
+        let _ = std::fs::remove_file(&temporal);
+    }
+    resultado
+}
+
+/// Crea el temporal cerrando la carrera: `create_new` (`O_EXCL`) no sigue un
+/// enlace pre-plantado con el nombre predecible del temporal ni pisa un archivo
+/// que ya esté, y `mode(0o600)` lo hace privado desde que nace —datos personales
+/// en un directorio compartido-escribible no deben quedar legibles por nadie—.
+/// Un temporal huérfano del mismo pid se saca una vez y se reintenta; si
+/// reaparece, se falla antes que seguir algo que no creamos nosotros.
+fn crear_temporal(temporal: &std::path::Path) -> std::io::Result<std::fs::File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut opciones = std::fs::OpenOptions::new();
+    opciones.write(true).create_new(true).mode(0o600);
+    match opciones.open(temporal) {
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            std::fs::remove_file(temporal)?;
+            opciones.open(temporal)
+        }
+        otro => otro,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,5 +535,102 @@ mod tests {
         // Y un error que no viene de un método —el bus cerrado— tampoco tiene
         // nombre que mirar.
         assert_eq!(reask_error_code(None), REASK_FAILED);
+    }
+
+    /// Directorio temporal propio de cada prueba, para no pisar a las demás.
+    fn directorio(nombre: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("vasak-contacts-{nombre}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// Exportar escribe el CSV con un BOM delante —sin él Excel rompe los
+    /// acentos— y no deja el temporal al lado.
+    #[test]
+    fn exportar_csv_escribe_con_bom_y_sin_dejar_temporales() {
+        let dir = directorio("bom");
+        let ruta = dir.join("contactos.csv");
+
+        exportar_csv_impl(&ruta.to_string_lossy(), "Name\r\nÁlvaro").unwrap();
+
+        assert_eq!(
+            std::fs::read(&ruta).unwrap(),
+            "\u{feff}Name\r\nÁlvaro".as_bytes()
+        );
+        let restos: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(restos.len(), 1, "sólo el CSV, sin temporales");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Exportar sobre un archivo que ya existe lo reemplaza entero.
+    #[test]
+    fn escribir_atomico_reemplaza_el_contenido_anterior() {
+        let dir = directorio("reemplazo");
+        let ruta = dir.join("a.csv");
+        std::fs::write(&ruta, "un contenido viejo y bastante más largo").unwrap();
+
+        escribir_atomico(&ruta, b"nuevo").unwrap();
+
+        assert_eq!(std::fs::read(&ruta).unwrap(), b"nuevo");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Guardar sobre un enlace simbólico escribe el archivo apuntado y deja el
+    /// enlace como enlace; sin seguirlo, `rename` lo cambiaría por un archivo.
+    #[cfg(unix)]
+    #[test]
+    fn escribir_atomico_sigue_el_enlace_simbolico() {
+        let dir = directorio("enlace");
+        let real = dir.join("real.csv");
+        let enlace = dir.join("enlace.csv");
+        std::fs::write(&real, "viejo").unwrap();
+        std::os::unix::fs::symlink(&real, &enlace).unwrap();
+
+        escribir_atomico(&enlace, b"nuevo").unwrap();
+
+        assert!(std::fs::symlink_metadata(&enlace)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert_eq!(std::fs::read(&real).unwrap(), b"nuevo");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Un enlace pre-plantado con el nombre predecible del temporal no se sigue:
+    /// el archivo al que apunta (la víctima) queda intacto.
+    #[cfg(unix)]
+    #[test]
+    fn escribir_atomico_no_sigue_un_temporal_plantado_como_enlace() {
+        let dir = directorio("temporal-plantado");
+        let victima = dir.join("victima.txt");
+        std::fs::write(&victima, "secreto").unwrap();
+        let temporal = dir.join(format!(".export.csv.vasak-contacts.{}", std::process::id()));
+        std::os::unix::fs::symlink(&victima, &temporal).unwrap();
+
+        let destino = dir.join("export.csv");
+        let _ = escribir_atomico(&destino, b"nuevo");
+
+        assert_eq!(std::fs::read(&victima).unwrap(), b"secreto");
+        assert_eq!(std::fs::read(&destino).unwrap(), b"nuevo");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Reexportar sobre un CSV en 0600 lo deja en 0600, no en lo que diga el umask.
+    #[cfg(unix)]
+    #[test]
+    fn escribir_atomico_conserva_los_permisos_del_archivo_reemplazado() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = directorio("permisos");
+        let ruta = dir.join("p.csv");
+        std::fs::write(&ruta, "viejo").unwrap();
+        std::fs::set_permissions(&ruta, std::fs::Permissions::from_mode(0o640)).unwrap();
+
+        escribir_atomico(&ruta, b"nuevo").unwrap();
+
+        let modo = std::fs::metadata(&ruta).unwrap().permissions().mode() & 0o777;
+        assert_eq!(modo, 0o640);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
