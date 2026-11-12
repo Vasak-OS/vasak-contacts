@@ -10,7 +10,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
-import { type Contact, emptyContact } from '@/tools/address-book';
+import { type Contact, emptyContact, type Relationship } from '@/tools/address-book';
 import { answerCommand, invokedCommands, olvidarTodo } from './dobles';
 
 const PNG = 'data:image/png;base64,iVBORw0KGgo=';
@@ -140,6 +140,53 @@ describe('las webs', () => {
 		expect(buttons).not.toContain('contact.open');
 		// Pero se ve y se puede copiar: es un dato de la tarjeta.
 		expect(view.find('[data-testid="websites"]').text()).toContain('javascript:alert(1)');
+	});
+});
+
+describe('las relaciones', () => {
+	function showRelated(related: Relationship[], allContacts: Contact[]) {
+		wrapper = mount(ContactDetail, {
+			props: { contact: emptyContact({ uid: 'yo', name: 'Ana Pérez', related }), allContacts },
+		});
+		return wrapper;
+	}
+
+	const luis = emptyContact({ uid: 'urn:uuid:luis', name: 'Luis Gómez' });
+
+	test('aparece la sección con el tipo y el nombre de la ficha resuelta', () => {
+		const view = showRelated([{ kind: 'spouse', name: '', target_uid: 'luis' }], [luis]);
+		const text = view.find('[data-testid="relations"]').text();
+		expect(text).toContain('form.relations.spouse');
+		expect(text).toContain('Luis Gómez');
+	});
+
+	test('una relación resuelta tiene «abrir» y emite open con ese contacto', async () => {
+		const view = showRelated([{ kind: 'spouse', name: '', target_uid: 'luis' }], [luis]);
+		const open = view
+			.findAll('[data-testid="relations"] button')
+			.find((b) => b.text() === 'contact.open');
+		expect(open).toBeDefined();
+		await open?.trigger('click');
+		expect(view.emitted('open')).toEqual([[luis]]);
+	});
+
+	test('una relación de sólo texto se ve sin botón «abrir»', () => {
+		const view = showRelated([{ kind: 'friend', name: 'Mi vecina', target_uid: '' }], [luis]);
+		const section = view.find('[data-testid="relations"]');
+		expect(section.text()).toContain('Mi vecina');
+		expect(section.findAll('button')).toHaveLength(0);
+	});
+
+	test('una referencia por uid que no resuelve y sin nombre no aparece', () => {
+		const view = showRelated([{ kind: 'friend', name: '', target_uid: 'fantasma' }], [luis]);
+		expect(view.find('[data-testid="relations"]').exists()).toBe(false);
+	});
+
+	test('un tipo desconocido se muestra tal cual, sin traducir', () => {
+		const view = showRelated([{ kind: 'tutor', name: 'Marta', target_uid: '' }], []);
+		const text = view.find('[data-testid="relations"]').text();
+		expect(text).toContain('tutor');
+		expect(text).not.toContain('form.relations.tutor');
 	});
 });
 

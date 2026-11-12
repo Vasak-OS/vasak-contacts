@@ -14,6 +14,16 @@ export interface LabeledValue {
 	value: string;
 }
 
+/** Una relación con otra persona: jefe, asistente, pareja, equipo. */
+export interface Relationship {
+	/** El tipo en minúsculas: `spouse`, `manager`, `colleague`… o vacío. */
+	kind: string;
+	/** El nombre para mostrar. Vacío cuando la relación llega sólo como `target_uid`. */
+	name: string;
+	/** El uid de la otra tarjeta, cuando la relación apunta a una. Vacío si es un nombre suelto. */
+	target_uid: string;
+}
+
 /** Una dirección postal, con sus siete partes. Ver `addressLines`. */
 export interface Address {
 	label: string;
@@ -138,6 +148,7 @@ export interface Contact {
 	time_zone: string;
 	geo: string;
 	categories: string[];
+	related: Relationship[];
 	custom_fields: CustomField[];
 }
 
@@ -179,6 +190,7 @@ export function emptyContact(overrides: Partial<Contact> = {}): Contact {
 		time_zone: '',
 		geo: '',
 		categories: [],
+		related: [],
 		custom_fields: [],
 		...overrides,
 	};

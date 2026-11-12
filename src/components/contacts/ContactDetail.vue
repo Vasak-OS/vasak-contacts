@@ -28,6 +28,7 @@ import {
 	formatPartialDate,
 	labelKey,
 	languageName,
+	relationKindKey,
 	serviceName,
 	webLink,
 } from '@/tools/contact-fields';
@@ -35,6 +36,7 @@ import { enlaceDeCorreo, enlaceDeTelefono } from '@/tools/enlaces';
 import { interpolar } from '@/tools/interpolar';
 import { formatInteractionDate } from '@/tools/mail-history';
 import { NARROW_FULL_LINE, NARROW_ONLY, NARROW_ROW_WRAP, NARROW_WRAP } from '@/tools/narrow-layout';
+import { resolveRelated } from '@/tools/relations';
 import { reaskNoticeKey } from '@/tools/store-permission';
 import { syncBadge } from '@/tools/sync-badge';
 
@@ -42,6 +44,8 @@ const props = defineProps<{
 	contact: Contact | null;
 	/** Si esta es la tarjeta de la persona («este soy yo»). */
 	isOwn?: boolean;
+	/** Todos los contactos cargados, para resolver las relaciones a sus fichas. */
+	allContacts?: Contact[];
 }>();
 const emit = defineEmits<{
 	/** Volver a la lista, con la ventana angosta. */
@@ -56,6 +60,8 @@ const emit = defineEmits<{
 	qr: [contact: Contact];
 	/** Marcar o desmarcar esta tarjeta como la propia. */
 	toggleOwn: [contact: Contact];
+	/** Abrir la ficha de otro contacto (desde una relación resuelta). */
+	open: [contact: Contact];
 }>();
 
 const { t, locale } = useI18n();
@@ -150,6 +156,33 @@ function labelText(label: string): string {
 function labelPrefix(label: string): string {
 	const text = labelText(label);
 	return text ? `${text} · ` : '';
+}
+
+/** El tipo de una relación, traducido si se conoce; si no, como vino. */
+function relationLabel(kind: string): string {
+	if (!kind) {
+		return '';
+	}
+	const key = relationKindKey(kind);
+	return key ? t(key) : kind;
+}
+
+/**
+ * Las relaciones a mostrar: las del contacto, con la otra ficha resuelta cuando
+ * se puede enlazar. Se dejan afuera las que no tienen nada que mostrar —una
+ * referencia por uid a una tarjeta que no está cargada.
+ */
+const relations = computed(() =>
+	props.contact
+		? resolveRelated(props.contact, props.allContacts ?? []).filter((r) => r.name || r.contact)
+		: []
+);
+
+/** Abrir la ficha de una relación resuelta (el `v-if` ya garantiza que no es null). */
+function openRelated(contact: Contact | null): void {
+	if (contact) {
+		emit('open', contact);
+	}
 }
 
 /** El cargo y la función juntos, sin repetir si dicen lo mismo. */
@@ -586,6 +619,26 @@ const kindLabel = computed(() => {
               size="sm"
               :label="copied === profile.handle ? t('contact.copied') : t('contact.copy')"
               @click="copy(profile.handle)" />
+          </div>
+        </section>
+
+        <section v-if="relations.length > 0" class="flex flex-col gap-1" data-testid="relations">
+          <SectionHeading as="h2" :title="t('contact.relations')" />
+          <div
+            v-for="(relation, i) in relations"
+            :key="`${i}-${relation.kind}-${relation.name}`"
+            class="flex items-center gap-2 @max-[12rem]:flex-wrap"
+            :class="NARROW_ROW_WRAP">
+            <span class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full" :class="[NARROW_WRAP, NARROW_FULL_LINE]">
+              <span class="text-tx-muted text-xs">{{ relation.kind ? `${relationLabel(relation.kind)} · ` : '' }}</span>{{ relation.name }}
+            </span>
+            <ActionButton
+              class="shrink-0"
+              v-if="relation.contact"
+              variant="ghost"
+              size="sm"
+              :label="t('contact.open')"
+              @click="openRelated(relation.contact)" />
           </div>
         </section>
 

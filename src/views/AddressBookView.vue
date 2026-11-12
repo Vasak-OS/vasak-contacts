@@ -406,6 +406,7 @@ onMounted(cargar);
       <ContactDetail
         :contact="elegido"
         :is-own="own.isOwn(elegido)"
+        :all-contacts="contactos"
         v-bind="{ 'data-pane': 'detail' }"
         :class="paneClass('detail', pane)"
         @back="go('list')"
@@ -413,6 +414,7 @@ onMounted(cargar);
         @remove="removeContact"
         @resolve="openConflict"
         @qr="openQr"
+        @open="select"
         @toggle-own="own.toggle" />
     </template>
 
