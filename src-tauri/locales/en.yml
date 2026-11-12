@@ -110,6 +110,7 @@ form:
     partner: partner
     assistant: assistant
     manager: manager
+    colleague: colleague
     other: other
 # Elegir qué libretas se ven y filtrar por categoría, en el panel de cuentas.
 filtros:

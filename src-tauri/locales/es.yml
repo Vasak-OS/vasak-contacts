@@ -127,6 +127,7 @@ form:
     partner: pareja
     assistant: asistente
     manager: jefe/a
+    colleague: colega
     other: otro
 # Elegir qué libretas se ven y filtrar por categoría, en el panel de cuentas.
 filtros:

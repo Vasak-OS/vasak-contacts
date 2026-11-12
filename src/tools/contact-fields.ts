@@ -193,6 +193,26 @@ export function labelKey(label: string): string | null {
 	return KNOWN_LABELS.has(normalized) ? `contact.labels.${normalized}` : null;
 }
 
+/** Los tipos de relación con traducción; el resto se muestra como vino. */
+const KNOWN_RELATION_KINDS = new Set([
+	'spouse',
+	'child',
+	'parent',
+	'sibling',
+	'friend',
+	'partner',
+	'assistant',
+	'manager',
+	'colleague',
+	'other',
+]);
+
+/** La clave de traducción del tipo de una relación conocida, o `null`. */
+export function relationKindKey(kind: string): string | null {
+	const normalized = kind.trim().toLowerCase();
+	return KNOWN_RELATION_KINDS.has(normalized) ? `form.relations.${normalized}` : null;
+}
+
 /**
  * Los nombres propios de los servicios. Son marcas: no se traducen, pero
  * tampoco se muestran en minúsculas como vienen de la tarjeta.
