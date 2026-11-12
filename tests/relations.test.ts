@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { type Contact, emptyContact, type Relationship } from '../src/tools/address-book';
-import { normalizeUid, resolveRelated } from '../src/tools/relations';
+import { inverseRelated, normalizeUid, relationsFor, resolveRelated } from '../src/tools/relations';
 
 function rel(parts: Partial<Relationship>): Relationship {
 	return { kind: 'friend', name: '', target_uid: '', ...parts };
@@ -29,6 +29,7 @@ describe('resolveRelated', () => {
 		expect(r.contact).toBe(ana);
 		expect(r.name).toBe('Ana Pérez');
 		expect(r.kind).toBe('friend');
+		expect(r.direction).toBe('forward');
 	});
 
 	test('el uid se compara normalizado: urn en la ficha y pelado en la relación', () => {
@@ -70,5 +71,63 @@ describe('resolveRelated', () => {
 		const [r] = resolveRelated(me, [me]);
 		expect(r.contact).toBeNull();
 		expect(r.name).toBe('Yo mismo');
+	});
+});
+
+describe('inverseRelated', () => {
+	test('lo que otra ficha declara hacia esta aparece como inversa', () => {
+		const b = person({ uid: 'b', name: 'B' });
+		const a = person({ uid: 'a', name: 'A', related: [rel({ kind: 'manager', target_uid: 'b' })] });
+		expect(inverseRelated(b, [a, b])).toEqual([
+			{ kind: 'manager', name: 'A', contact: a, direction: 'inverse' },
+		]);
+	});
+
+	test('el uid se compara normalizado: urn en la ficha y pelado en la relación', () => {
+		const b = person({ uid: 'urn:uuid:B', name: 'B' });
+		const a = person({ uid: 'a', related: [rel({ target_uid: 'B' })] });
+		expect(inverseRelated(b, [a, b])[0].contact).toBe(a);
+	});
+
+	test('el uid se compara normalizado: pelado en la ficha y urn en la relación', () => {
+		const b = person({ uid: 'B', name: 'B' });
+		const a = person({ uid: 'a', related: [rel({ target_uid: 'urn:uuid:B' })] });
+		expect(inverseRelated(b, [a, b])[0].contact).toBe(a);
+	});
+
+	test('varias fichas que apuntan a esta dan varias inversas', () => {
+		const b = person({ uid: 'b', name: 'B' });
+		const a1 = person({ uid: 'a1', related: [rel({ target_uid: 'b' })] });
+		const a2 = person({ uid: 'a2', related: [rel({ target_uid: 'b' })] });
+		expect(inverseRelated(b, [a1, a2, b]).map((r) => r.contact)).toEqual([a1, a2]);
+	});
+
+	test('una relación de texto no genera inversa', () => {
+		const b = person({ uid: 'b', name: 'B' });
+		const a = person({ uid: 'a', related: [rel({ name: 'B' })] });
+		expect(inverseRelated(b, [a, b])).toEqual([]);
+	});
+
+	test('no se incluye a sí mismo', () => {
+		const b = person({ uid: 'b', related: [rel({ target_uid: 'b' })] });
+		expect(inverseRelated(b, [b])).toEqual([]);
+	});
+});
+
+describe('relationsFor', () => {
+	test('si B no declara nada hacia A, la inversa aparece junto a las propias', () => {
+		const a = person({ uid: 'a', name: 'A', related: [rel({ kind: 'spouse', target_uid: 'b' })] });
+		const b = person({ uid: 'b', name: 'B', related: [rel({ name: 'Vecina' })] });
+		const result = relationsFor(b, [a, b]);
+		expect(result.map((r) => r.direction)).toEqual(['forward', 'inverse']);
+		expect(result[1].contact).toBe(a);
+	});
+
+	test('una relación mutua no se repite: sólo queda la propia', () => {
+		const a = person({ uid: 'a', name: 'A', related: [rel({ kind: 'spouse', target_uid: 'b' })] });
+		const b = person({ uid: 'b', name: 'B', related: [rel({ kind: 'spouse', target_uid: 'a' })] });
+		const result = relationsFor(b, [a, b]);
+		expect(result).toHaveLength(1);
+		expect(result[0].direction).toBe('forward');
 	});
 });
