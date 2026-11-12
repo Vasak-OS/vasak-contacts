@@ -31,7 +31,8 @@ export function useConfigStore() {
 }
 
 /**
- * El catálogo que el proceso de Rust contestaría, con una sola clave.
+ * El catálogo que el proceso de Rust contestaría, con las pocas claves que
+ * alguna prueba necesita ver traducidas (`contact.openNamed` lleva `{0}`).
  *
  * Vive acá y no dentro de `traducciones.test.ts` porque **hay un solo `invoke`
  * doblado para toda la suite**. Con dos `mock.module` sobre
@@ -40,7 +41,7 @@ export function useConfigStore() {
  * carga del idioma pasaba por el doble equivocado y `locale` quedaba
  * `undefined`. Local pasaba y en CI fallaba.
  */
-export const CATALOGO = { es: { 'vsk.prueba': 'Traducido' } };
+export const CATALOGO = { es: { 'vsk.prueba': 'Traducido', 'contact.openNamed': 'Abrir a {0}' } };
 
 /**
  * Lo que contestan los comandos propios de la aplicación, cuando una prueba lo

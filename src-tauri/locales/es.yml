@@ -42,6 +42,8 @@ contact:
   copy: Copiar
   copied: Copiado
   open: Abrir
+  # `{0}` es el nombre del contacto, para el nombre accesible del botón en el organigrama.
+  openNamed: "Abrir a {0}"
   relations: Relaciones
   orgChart: Organigrama
   # `{0}` es el tipo de relación, para mostrarla desde el otro lado: «jefe/a de».

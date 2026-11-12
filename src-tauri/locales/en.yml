@@ -31,6 +31,8 @@ contact:
   copy: Copy
   copied: Copied
   open: Open
+  # `{0}` is the contact name, for the accessible name of the org-chart open button.
+  openNamed: "Open {0}"
   relations: Relationships
   orgChart: Org chart
   # `{0}` is the relationship kind, shown from the other side: "manager of".

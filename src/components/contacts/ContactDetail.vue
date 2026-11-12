@@ -669,29 +669,36 @@ const kindLabel = computed(() => {
         </section>
 
         <!-- El organigrama: el árbol jefe/asistente de la organización, como lista
-             con sangría. La sangría por profundidad es lo único que dibuja la
-             jerarquía; el contacto que se está viendo va resaltado. -->
+             con sangría. La sangría es sólo visual; la jerarquía la lleva el
+             `role="tree"` con el `aria-level` de cada renglón, para que un lector
+             de pantalla sepa quién depende de quién y no reciba una lista plana.
+             El contacto que se está viendo va resaltado. -->
         <section v-if="orgChart.length > 0" class="flex flex-col gap-1" data-testid="org-chart">
           <SectionHeading as="h2" :title="t('contact.orgChart')" />
-          <div
-            v-for="node in orgChart"
-            :key="`org-${node.contact.uid}`"
-            class="flex items-center gap-2 @max-[12rem]:flex-wrap"
-            :class="NARROW_ROW_WRAP"
-            :style="{ paddingInlineStart: `${node.depth * 1.25}rem` }">
-            <span
-              class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full"
-              :class="[NARROW_WRAP, NARROW_FULL_LINE, node.current ? 'font-semibold' : '']">
-              {{ node.contact.name || t('lista.sinNombre') }}
-              <span v-if="node.relation === 'assistant'" class="text-tx-muted text-xs">· {{ t('form.relations.assistant') }}</span>
-            </span>
-            <ActionButton
-              class="shrink-0"
-              v-if="!node.current"
-              variant="ghost"
-              size="sm"
-              :label="t('contact.open')"
-              @click="openRelated(node.contact)" />
+          <div role="tree" :aria-label="t('contact.orgChart')" class="flex flex-col gap-1">
+            <div
+              v-for="node in orgChart"
+              :key="`org-${node.contact.uid}`"
+              role="treeitem"
+              :aria-level="node.depth + 1"
+              class="flex items-center gap-2 @max-[12rem]:flex-wrap"
+              :class="NARROW_ROW_WRAP"
+              :style="{ paddingInlineStart: `${node.depth * 1.25}rem` }">
+              <span
+                class="min-w-0 flex-1 truncate text-sm @max-[12rem]:basis-full"
+                :class="[NARROW_WRAP, NARROW_FULL_LINE, node.current ? 'font-semibold' : '']">
+                {{ node.contact.name || t('lista.sinNombre') }}
+                <span v-if="node.relation === 'assistant'" class="text-tx-muted text-xs">· {{ t('form.relations.assistant') }}</span>
+              </span>
+              <ActionButton
+                class="shrink-0"
+                v-if="!node.current"
+                variant="ghost"
+                size="sm"
+                :label="t('contact.open')"
+                v-bind="{ 'aria-label': interpolar(t('contact.openNamed'), node.contact.name || t('lista.sinNombre')) }"
+                @click="openRelated(node.contact)" />
+            </div>
           </div>
         </section>
 

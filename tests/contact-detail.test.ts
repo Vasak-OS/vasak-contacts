@@ -8,6 +8,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
+import I18n from '@vasakgroup/tauri-plugin-i18n';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import { type Contact, emptyContact, type Relationship } from '@/tools/address-book';
@@ -381,5 +382,27 @@ describe('el organigrama', () => {
 	test('sin organigrama la sección no se muestra', () => {
 		const solo = emptyContact({ uid: 'solo', name: 'Solo', organization: ORG });
 		expect(showChart(solo, [solo]).find('[data-testid="org-chart"]').exists()).toBe(false);
+	});
+
+	test('el árbol lleva roles y la profundidad en aria-level', () => {
+		const abuela = emptyContact({ uid: 'abu', name: 'Abu Ela', organization: ORG });
+		const jefaConJefa = { ...jefa, related: [{ kind: 'manager' as const, name: '', target_uid: 'abu' }] };
+		const view = showChart(ana, [abuela, jefaConJefa, ana]);
+		const section = view.find('[data-testid="org-chart"]');
+		expect(section.find('[role="tree"]').exists()).toBe(true);
+		const levels = section
+			.findAll('[role="treeitem"]')
+			.map((n) => [n.text().replace(/\s+/g, ' ').trim(), n.attributes('aria-level')]);
+		expect(levels.map(([, l]) => l)).toEqual(['1', '2', '3']);
+		expect(levels[0][0]).toContain('Abu Ela');
+		expect(levels[1][0]).toContain('Jefa Ruiz');
+		expect(levels[2][0]).toContain('Ana Pérez');
+	});
+
+	test('cada «abrir» dice a quién abre', async () => {
+		await I18n.getInstance().load();
+		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');
+		const labels = section.findAll('button').map((b) => b.attributes('aria-label'));
+		expect(labels).toEqual(['Abrir a Jefa Ruiz', 'Abrir a Asis Tente']);
 	});
 });
