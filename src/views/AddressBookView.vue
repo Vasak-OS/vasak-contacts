@@ -55,6 +55,10 @@ const {
 	duplicateCount,
 	onlyDuplicates,
 	toggleOnlyDuplicates,
+	duplicateGroupOf,
+	mergeMembersOf,
+	mergeGroup,
+	unmerge,
 } = useAgenda(() => locale.value);
 
 /**
@@ -413,6 +417,8 @@ onMounted(cargar);
         :contact="elegido"
         :is-own="own.isOwn(elegido)"
         :all-contacts="contactos"
+        :duplicate-group="elegido ? duplicateGroupOf(elegido) : []"
+        :merge-members="elegido ? mergeMembersOf(elegido) : []"
         v-bind="{ 'data-pane': 'detail' }"
         :class="paneClass('detail', pane)"
         @back="go('list')"
@@ -421,7 +427,9 @@ onMounted(cargar);
         @resolve="openConflict"
         @qr="openQr"
         @open="select"
-        @toggle-own="own.toggle" />
+        @toggle-own="own.toggle"
+        @merge="mergeGroup"
+        @unmerge="unmerge" />
     </template>
 
     <!-- El aviso de que un borrado no se pudo: una barra al pie, que se cierra.

@@ -128,7 +128,16 @@ duplicados:
   posiblesOne: "{0} possible duplicate"
   posiblesOther: "{0} possible duplicates"
   verTodos: Show all contacts
-# Los botones de ir y volver entre columnas, con la ventana angosta.
+  # El aviso en la ficha cuando parece repetida, para unirla.
+  unirTitulo: Possible duplicate
+  # `{0}` es cuántas tarjetas parecen la misma persona.
+  unirCuerpo: "These {0} cards look like the same person. They merge here, not on the server, and it can be undone."
+  unir: Merge
+  # El aviso en una ficha ya unida, para separarla.
+  unidaTitulo: Merged cards
+  # `{0}` son los nombres de las tarjetas que se unieron.
+  unidaCuerpo: "Merged from: {0}. The merge is local and can be undone."
+  separar: Separate
 nav:
   accounts: Accounts
   contacts: Contacts

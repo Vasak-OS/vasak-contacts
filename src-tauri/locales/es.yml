@@ -145,6 +145,16 @@ duplicados:
   posiblesOne: "{0} posible repetido"
   posiblesOther: "{0} posibles repetidos"
   verTodos: Ver toda la agenda
+  # El aviso en la ficha cuando parece repetida, para unirla.
+  unirTitulo: Posible repetido
+  # `{0}` es cuántas tarjetas parecen la misma persona.
+  unirCuerpo: "Estas {0} tarjetas parecen la misma persona. Se unen acá, no en el servidor, y se puede deshacer."
+  unir: Unir
+  # El aviso en una ficha ya unida, para separarla.
+  unidaTitulo: Tarjetas unidas
+  # `{0}` son los nombres de las tarjetas que se unieron.
+  unidaCuerpo: "Unida de: {0}. La unión es local y se puede deshacer."
+  separar: Separar
 # Los botones de ir y volver entre columnas, con la ventana angosta.
 nav:
   accounts: Cuentas

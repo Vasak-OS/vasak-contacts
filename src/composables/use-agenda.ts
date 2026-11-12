@@ -21,6 +21,8 @@ import {
 	loadHiddenBooks,
 	saveHiddenBooks,
 } from '@/tools/library-filter';
+import { applyLocalMerges, loadMerges, saveMerges } from '@/tools/merge';
+import { ownCardKey } from '@/tools/own-card';
 import { isStorePermissionDenied } from '@/tools/store-permission';
 
 /** Una cuenta conectada que tiene libretas. */
@@ -97,11 +99,25 @@ export function useAgenda(locale: () => string) {
 	let vigente = 0;
 
 	/**
+	 * Las fusiones locales confirmadas, por las claves de sus miembros. Es
+	 * preferencia de la ventana, reversible y no toca el servidor. Ver `merge.ts`.
+	 */
+	const localMerges = ref<string[][]>(loadMerges());
+	/**
+	 * La agenda con las fusiones aplicadas: cada grupo unido aparece como una
+	 * sola tarjeta. Todo lo de abajo —filtros, detección, orden— trabaja sobre
+	 * esto, así una tarjeta ya unida no se vuelve a proponer como repetida.
+	 */
+	const merged = computed(() => applyLocalMerges(contactos.value, localMerges.value));
+	/** Por la clave de cada tarjeta unida, sus miembros, para separarla y ver qué se juntó. */
+	const mergedMembers = computed(() => merged.value.members);
+
+	/**
 	 * Lo de las libretas que se ven. La lista de categorías sale de acá y no de
 	 * lo ya filtrado por categoría: así marcar una categoría no hace desaparecer
 	 * a las demás de la barra.
 	 */
-	const afterBooks = computed(() => filterByBooks(contactos.value, hiddenBooks.value));
+	const afterBooks = computed(() => filterByBooks(merged.value.contacts, hiddenBooks.value));
 	/** Las categorías que hay para filtrar, de las libretas que se ven. */
 	const categories = computed(() => collectCategories(afterBooks.value, locale()));
 	const afterCategories = computed(() =>
@@ -129,6 +145,34 @@ export function useAgenda(locale: () => string) {
 	/** Prende o apaga el filtro de posibles repetidos. */
 	function toggleOnlyDuplicates() {
 		onlyDuplicates.value = !onlyDuplicates.value;
+	}
+
+	/** El grupo de posibles repetidos que contiene a una tarjeta, o vacío. */
+	function duplicateGroupOf(contact: Contact): Contact[] {
+		return duplicateGroups.value.find((group) => group.contacts.includes(contact))?.contacts ?? [];
+	}
+	/** Si una tarjeta es el resultado de una fusión local. */
+	function isMerged(contact: Contact): boolean {
+		return mergedMembers.value.has(ownCardKey(contact));
+	}
+	/** Las tarjetas que se unieron en una tarjeta fusionada (vacío si no lo es). */
+	function mergeMembersOf(contact: Contact): Contact[] {
+		return mergedMembers.value.get(ownCardKey(contact)) ?? [];
+	}
+	/** Une un grupo de tarjetas en una fusión local y deja seleccionada la unida. */
+	function mergeGroup(group: Contact[]) {
+		const keys = group.map(ownCardKey).filter((key) => key.length > 0);
+		if (keys.length < 2) return;
+		localMerges.value = [...localMerges.value, keys];
+		saveMerges(localMerges.value);
+		elegido.value = merged.value.contacts.find((c) => ownCardKey(c) === keys[0]) ?? null;
+	}
+	/** Deshace la fusión local que incluye a esta tarjeta y vuelve a la original. */
+	function unmerge(contact: Contact) {
+		const key = ownCardKey(contact);
+		localMerges.value = localMerges.value.filter((group) => !group.includes(key));
+		saveMerges(localMerges.value);
+		elegido.value = merged.value.contacts.find((c) => ownCardKey(c) === key) ?? null;
 	}
 
 	/** Ordenados con el comparador del idioma de la sesión. Ver `address-book.ts`. */
@@ -494,5 +538,10 @@ export function useAgenda(locale: () => string) {
 		duplicateCount,
 		onlyDuplicates,
 		toggleOnlyDuplicates,
+		duplicateGroupOf,
+		isMerged,
+		mergeMembersOf,
+		mergeGroup,
+		unmerge,
 	};
 }
