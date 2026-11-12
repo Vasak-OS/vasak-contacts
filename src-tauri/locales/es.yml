@@ -43,6 +43,7 @@ contact:
   copied: Copiado
   open: Abrir
   relations: Relaciones
+  orgChart: Organigrama
   # `{0}` es el tipo de relación, para mostrarla desde el otro lado: «jefe/a de».
   relationInverse: "{0} de"
   # `{0}` es el nombre del contacto.

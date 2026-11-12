@@ -337,3 +337,49 @@ describe('los textos de la ficha', () => {
 		}
 	});
 });
+
+describe('el organigrama', () => {
+	const ORG = 'Vasak Group';
+	const jefa = emptyContact({ uid: 'jefa', name: 'Jefa Ruiz', organization: ORG });
+	const asistente = emptyContact({ uid: 'asis', name: 'Asis Tente', organization: ORG });
+	const ana = emptyContact({
+		uid: 'ana',
+		name: 'Ana Pérez',
+		organization: ORG,
+		related: [
+			{ kind: 'manager', name: '', target_uid: 'jefa' },
+			{ kind: 'assistant', name: '', target_uid: 'asis' },
+		],
+	});
+
+	function showChart(contact: Contact, allContacts: Contact[]) {
+		wrapper = mount(ContactDetail, { props: { contact, allContacts } });
+		return wrapper;
+	}
+
+	test('aparece con los nombres y marca al asistente', () => {
+		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');
+		expect(section.exists()).toBe(true);
+		expect(section.text()).toContain('contact.orgChart');
+		expect(section.text()).toContain('Jefa Ruiz');
+		expect(section.text()).toContain('Asis Tente');
+		expect(section.text()).toContain('· form.relations.assistant');
+	});
+
+	test('el contacto actual no tiene «abrir» y los demás sí', () => {
+		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');
+		expect(section.findAll('button').filter((b) => b.text() === 'contact.open')).toHaveLength(2);
+	});
+
+	test('«abrir» emite open con ese contacto', async () => {
+		const view = showChart(ana, [jefa, ana, asistente]);
+		const open = view.findAll('[data-testid="org-chart"] button')[0];
+		await open.trigger('click');
+		expect(view.emitted('open')).toEqual([[jefa]]);
+	});
+
+	test('sin organigrama la sección no se muestra', () => {
+		const solo = emptyContact({ uid: 'solo', name: 'Solo', organization: ORG });
+		expect(showChart(solo, [solo]).find('[data-testid="org-chart"]').exists()).toBe(false);
+	});
+});
