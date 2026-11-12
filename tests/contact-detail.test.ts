@@ -8,6 +8,7 @@
  */
 
 import { afterEach, describe, expect, test } from 'bun:test';
+import I18n from '@vasakgroup/tauri-plugin-i18n';
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils';
 import ContactDetail from '@/components/contacts/ContactDetail.vue';
 import { type Contact, emptyContact, type Relationship } from '@/tools/address-book';
@@ -335,5 +336,84 @@ describe('los textos de la ficha', () => {
 			const missing = [...used].filter((k) => !keys.has(k));
 			expect(missing).toEqual([]);
 		}
+	});
+});
+
+describe('el organigrama', () => {
+	const ORG = 'Vasak Group';
+	const jefa = emptyContact({ uid: 'jefa', name: 'Jefa Ruiz', organization: ORG });
+	const asistente = emptyContact({ uid: 'asis', name: 'Asis Tente', organization: ORG });
+	const ana = emptyContact({
+		uid: 'ana',
+		name: 'Ana Pérez',
+		organization: ORG,
+		related: [
+			{ kind: 'manager', name: '', target_uid: 'jefa' },
+			{ kind: 'assistant', name: '', target_uid: 'asis' },
+		],
+	});
+
+	function showChart(contact: Contact, allContacts: Contact[]) {
+		wrapper = mount(ContactDetail, { props: { contact, allContacts } });
+		return wrapper;
+	}
+
+	test('aparece con los nombres y marca al asistente', () => {
+		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');
+		expect(section.exists()).toBe(true);
+		expect(section.text()).toContain('contact.orgChart');
+		expect(section.text()).toContain('Jefa Ruiz');
+		expect(section.text()).toContain('Asis Tente');
+		expect(section.text()).toContain('· form.relations.assistant');
+	});
+
+	test('el contacto actual no tiene «abrir» y los demás sí', () => {
+		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');
+		expect(section.findAll('button').filter((b) => b.text() === 'contact.open')).toHaveLength(2);
+	});
+
+	test('«abrir» emite open con ese contacto', async () => {
+		const view = showChart(ana, [jefa, ana, asistente]);
+		const open = view.findAll('[data-testid="org-chart"] button')[0];
+		await open.trigger('click');
+		expect(view.emitted('open')).toEqual([[jefa]]);
+	});
+
+	test('sin organigrama la sección no se muestra', () => {
+		const solo = emptyContact({ uid: 'solo', name: 'Solo', organization: ORG });
+		expect(showChart(solo, [solo]).find('[data-testid="org-chart"]').exists()).toBe(false);
+	});
+
+	test('el árbol lleva roles y la profundidad en aria-level', () => {
+		const abuela = emptyContact({ uid: 'abu', name: 'Abu Ela', organization: ORG });
+		const jefaConJefa = { ...jefa, related: [{ kind: 'manager' as const, name: '', target_uid: 'abu' }] };
+		const view = showChart(ana, [abuela, jefaConJefa, ana]);
+		const section = view.find('[data-testid="org-chart"]');
+		expect(section.find('[role="tree"]').exists()).toBe(true);
+		const levels = section
+			.findAll('[role="treeitem"]')
+			.map((n) => [n.text().replace(/\s+/g, ' ').trim(), n.attributes('aria-level')]);
+		expect(levels.map(([, l]) => l)).toEqual(['1', '2', '3']);
+		expect(levels[0][0]).toContain('Abu Ela');
+		expect(levels[1][0]).toContain('Jefa Ruiz');
+		expect(levels[2][0]).toContain('Ana Pérez');
+	});
+
+	test('cada nodo del árbol lleva aria-selected, «true» sólo en el contacto actual', () => {
+		const abuela = emptyContact({ uid: 'abu', name: 'Abu Ela', organization: ORG });
+		const jefaConJefa = { ...jefa, related: [{ kind: 'manager' as const, name: '', target_uid: 'abu' }] };
+		const items = showChart(ana, [abuela, jefaConJefa, ana])
+			.find('[data-testid="org-chart"]')
+			.findAll('[role="treeitem"]');
+		expect(items).toHaveLength(3);
+		expect(items.map((n) => n.attributes('aria-selected'))).toEqual(['false', 'false', 'true']);
+		expect(items[2].text()).toContain('Ana Pérez');
+	});
+
+	test('cada «abrir» dice a quién abre', async () => {
+		await I18n.getInstance().load();
+		const section = showChart(ana, [jefa, ana, asistente]).find('[data-testid="org-chart"]');
+		const labels = section.findAll('button').map((b) => b.attributes('aria-label'));
+		expect(labels).toEqual(['Abrir a Jefa Ruiz', 'Abrir a Asis Tente']);
 	});
 });
