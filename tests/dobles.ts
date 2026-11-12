@@ -41,7 +41,7 @@ export function useConfigStore() {
  * carga del idioma pasaba por el doble equivocado y `locale` quedaba
  * `undefined`. Local pasaba y en CI fallaba.
  */
-export const CATALOGO = { es: { 'vsk.prueba': 'Traducido', 'contact.openNamed': 'Abrir a {0}' } };
+export const CATALOGO = { es: { 'vsk.prueba': 'Traducido', 'contact.openNamed': 'Abrir a {0}', 'duplicados.unidaCuerpo': 'Unida de: {0}.' } };
 
 /**
  * Lo que contestan los comandos propios de la aplicación, cuando una prueba lo

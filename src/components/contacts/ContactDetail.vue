@@ -47,6 +47,10 @@ const props = defineProps<{
 	isOwn?: boolean;
 	/** Todos los contactos cargados, para resolver las relaciones a sus fichas. */
 	allContacts?: Contact[];
+	/** El grupo de posibles repetidos que incluye a esta ficha (≥2 para proponer unir). */
+	duplicateGroup?: Contact[];
+	/** Si esta ficha es una fusión local: sus tarjetas de origen (≥2), para separar. */
+	mergeMembers?: Contact[];
 }>();
 const emit = defineEmits<{
 	/** Volver a la lista, con la ventana angosta. */
@@ -63,12 +67,25 @@ const emit = defineEmits<{
 	toggleOwn: [contact: Contact];
 	/** Abrir la ficha de otro contacto (desde una relación resuelta). */
 	open: [contact: Contact];
+	/** Unir en una fusión local el grupo de posibles repetidos de esta ficha. */
+	merge: [group: Contact[]];
+	/** Deshacer la fusión local de esta ficha. */
+	unmerge: [contact: Contact];
 }>();
 
 const { t, locale } = useI18n();
 
 /** Si se puede editar o borrar el contacto que se está viendo. */
 const editable = computed(() => (props.contact ? canEdit(props.contact) : false));
+
+/** Si hay un grupo de posibles repetidos para proponer unir desde esta ficha. */
+const canMerge = computed(() => (props.duplicateGroup?.length ?? 0) >= 2);
+/** Si esta ficha es una fusión local que se puede separar. */
+const isMergedCard = computed(() => (props.mergeMembers?.length ?? 0) >= 2);
+/** Los nombres de las tarjetas unidas, para decir qué se juntó (y qué se descartó). */
+const mergeMemberNames = computed(() =>
+	(props.mergeMembers ?? []).map((m) => m.name || t('lista.sinNombre')).join(', ')
+);
 const removable = computed(() => (props.contact ? canDelete(props.contact) : false));
 
 /** La insignia «sin sincronizar» del contacto, o `null` si está al día. */
@@ -443,6 +460,44 @@ const kindLabel = computed(() => {
               size="sm"
               :label="t('conflict.resolve')"
               @click="emit('resolve', contact)" />
+          </template>
+        </AlertMessage>
+
+        <!-- Posible repetido: se propone unir, nunca se une solo. La fusión es
+             local y reversible (vasak-contacts#5). -->
+        <AlertMessage
+          v-if="canMerge"
+          tone="info"
+          variant="banner"
+          icon="auto"
+          :title="t('duplicados.unirTitulo')"
+          v-bind="{ 'data-testid': 'merge-banner' }">
+          {{ interpolar(t('duplicados.unirCuerpo'), duplicateGroup?.length ?? 2) }}
+          <template #actions>
+            <ActionButton
+              variant="primary"
+              size="sm"
+              :label="t('duplicados.unir')"
+              @click="emit('merge', duplicateGroup ?? [])" />
+          </template>
+        </AlertMessage>
+
+        <!-- Ficha unida: se puede separar siempre. Se listan las tarjetas de
+             origen, así se ve qué se juntó y qué valor único se descartó. -->
+        <AlertMessage
+          v-else-if="isMergedCard"
+          tone="info"
+          variant="banner"
+          icon="auto"
+          :title="t('duplicados.unidaTitulo')"
+          v-bind="{ 'data-testid': 'merged-banner' }">
+          {{ interpolar(t('duplicados.unidaCuerpo'), mergeMemberNames) }}
+          <template #actions>
+            <ActionButton
+              variant="secondary"
+              size="sm"
+              :label="t('duplicados.separar')"
+              @click="emit('unmerge', contact)" />
           </template>
         </AlertMessage>
 
