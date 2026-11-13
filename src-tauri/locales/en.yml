@@ -144,6 +144,8 @@ exportar:
   vcf: Export to vCard
   # `{0}` es el motivo del error.
   error: "Could not export: {0}"
+  sinContactos: No contacts to export.
+  demasiado: This account has too many contacts to export at once.
 nav:
   accounts: Accounts
   contacts: Contacts

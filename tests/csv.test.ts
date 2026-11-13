@@ -203,4 +203,30 @@ describe('el botón «Exportar a vCard»', () => {
 			addressBookId: '',
 		});
 	});
+
+	test('muestra un aviso propio cuando el programa devuelve la marca de que no hay contactos', async () => {
+		answerCommand('listar_cuentas', () => [
+			{ id: 'a1', nombre: 'ana@nube.ejemplo.com', necesita_reconectarse: false },
+		]);
+		answerCommand('contactos_de_la_cuenta', () => ({
+			libretas: [],
+			contactos: [emptyContact({ name: 'Ana', account_id: 'a1', url: 'store:a1:/ana.vcf' })],
+			fallos: [],
+		}));
+		answerCommand('plugin:dialog|save', () => '/home/ana/contactos.vcf');
+		answerCommand('exportar_vcf', () => {
+			throw 'export-no-contacts';
+		});
+		mounted = mount(AddressBookView, {
+			attachTo: document.body.appendChild(document.createElement('div')),
+		});
+		await flushPromises();
+		await mounted
+			.findAllComponents(ActionButton)
+			.find((b) => b.attributes('data-testid') === 'export-vcf')
+			?.trigger('click');
+		await flushPromises();
+
+		expect(mounted.text()).not.toContain('export-no-contacts');
+	});
 });

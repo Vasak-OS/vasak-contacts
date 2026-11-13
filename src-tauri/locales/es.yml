@@ -161,6 +161,8 @@ exportar:
   vcf: Exportar a vCard
   # `{0}` es el motivo del error.
   error: "No se pudo exportar: {0}"
+  sinContactos: No hay contactos para exportar.
+  demasiado: La cuenta tiene demasiados contactos para exportar de una vez.
 # Los botones de ir y volver entre columnas, con la ventana angosta.
 nav:
   accounts: Cuentas

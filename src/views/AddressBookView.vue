@@ -234,8 +234,13 @@ async function exportarVcf() {
 	try {
 		const accountIds = [...new Set(visibles.value.map((c) => c.account_id))];
 		for (const accountId of accountIds) {
+			// Con varias cuentas, cada diálogo propone un nombre propio para que no
+			// se pisen entre sí; el nombre se limpia de lo que un archivo no admite.
+			const nombre = cuentas.value.find((cuenta) => cuenta.id === accountId)?.nombre ?? accountId;
+			const seguro = nombre.replace(/[^\p{L}\p{N}._@-]+/gu, '_').slice(0, 60);
 			const ruta = await save({
-				defaultPath: 'contactos.vcf',
+				title: accountIds.length > 1 ? nombre : undefined,
+				defaultPath: accountIds.length > 1 ? `contactos-${seguro}.vcf` : 'contactos.vcf',
 				filters: [{ name: 'vCard', extensions: ['vcf'] }],
 			});
 			if (!ruta) {
@@ -244,7 +249,14 @@ async function exportarVcf() {
 			await invoke('exportar_vcf', { ruta, accountId, addressBookId: '' });
 		}
 	} catch (e) {
-		actionNotice.value = interpolar(t('exportar.error'), String(e));
+		// Marcas estables del programa: el texto lo pone la ventana, en el idioma de la sesión.
+		const marca = String(e);
+		actionNotice.value =
+			marca === 'export-no-contacts'
+				? t('exportar.sinContactos')
+				: marca === 'export-too-large'
+					? t('exportar.demasiado')
+					: interpolar(t('exportar.error'), marca);
 	} finally {
 		exporting.value = false;
 	}
