@@ -141,6 +141,7 @@ duplicados:
 # Exportar la agenda a un archivo.
 exportar:
   csv: Export to CSV
+  vcf: Export to vCard
   # `{0}` es el motivo del error.
   error: "Could not export: {0}"
 nav:

@@ -267,6 +267,49 @@ where
     Ok(Some(lectura))
 }
 
+/// Las tarjetas **crudas** de una cuenta, tal como las guardó el almacén, sin
+/// convertir a [`Contact`]. Exportar a vCard necesita el texto original —fotos,
+/// direcciones, cumpleaños que el modelo de pantalla descarta—, así que no se
+/// pasa por [`contacts_from`]: se devuelve el `.vcard` entero.
+///
+/// Si `address_book_id` no está vacío, sólo las de esa libreta. El filtro se
+/// aplica acá sobre `StoredCard::address_book_id`, no en el almacén: se usa la
+/// misma llamada probada que [`read_contacts`] (`ListContactCards` con la
+/// libreta vacía = todas) y no se depende de que el servicio sepa filtrar.
+pub async fn read_raw_cards(
+    store: &StoreClient,
+    account_id: &str,
+    address_book_id: &str,
+) -> Result<Vec<StoredCard>, String> {
+    let mut tarjetas = Vec::new();
+    let mut cursor = String::new();
+    for _ in 0..MAX_PAGES {
+        let json = call(
+            store,
+            "ListContactCards",
+            &(account_id, "", cursor.as_str(), PAGE_SIZE),
+        )
+        .await?;
+        let pagina: CardPage = serde_json::from_str(&json)
+            .map_err(|e| format!("no se pudieron leer los contactos: {e}"))?;
+        tarjetas.extend(
+            pagina
+                .items
+                .into_iter()
+                .filter(|t| address_book_id.is_empty() || t.address_book_id == address_book_id),
+        );
+        match pagina.next_cursor {
+            Some(siguiente) if !siguiente.is_empty() => cursor = siguiente,
+            _ => return Ok(tarjetas),
+        }
+    }
+    // Más de `MAX_PAGES * PAGE_SIZE` tarjetas: se corta igual que la lectura
+    // normal (`read_store_pages`), devolviendo lo reunido. Exportar lo que hay
+    // es mejor que fallar; que falten las últimas es un caso que no se da con
+    // una libreta real.
+    Ok(tarjetas)
+}
+
 /// La respuesta de `PutContact`: el número local del contacto que creó o editó.
 #[derive(Debug, Clone, Deserialize)]
 struct PutContactReply {

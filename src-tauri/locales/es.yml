@@ -158,6 +158,7 @@ duplicados:
 # Exportar la agenda a un archivo.
 exportar:
   csv: Exportar a CSV
+  vcf: Exportar a vCard
   # `{0}` es el motivo del error.
   error: "No se pudo exportar: {0}"
 # Los botones de ir y volver entre columnas, con la ventana angosta.
