@@ -164,3 +164,69 @@ describe('el botón «Exportar a CSV»', () => {
 		expect(await exportarCon(null)).toHaveLength(0);
 	});
 });
+
+describe('el botón «Exportar a vCard»', () => {
+	let mounted: VueWrapper | null = null;
+
+	afterEach(() => {
+		mounted?.unmount();
+		mounted = null;
+		olvidarTodo();
+		document.body.innerHTML = '';
+	});
+
+	test('pide la cuenta entera al programa, sin armar nada en la ventana', async () => {
+		answerCommand('listar_cuentas', () => [
+			{ id: 'a1', nombre: 'ana@nube.ejemplo.com', necesita_reconectarse: false },
+		]);
+		answerCommand('contactos_de_la_cuenta', () => ({
+			libretas: [],
+			contactos: [emptyContact({ name: 'Ana', account_id: 'a1', url: 'store:a1:/ana.vcf' })],
+			fallos: [],
+		}));
+		answerCommand('plugin:dialog|save', () => '/home/ana/contactos.vcf');
+		mounted = mount(AddressBookView, {
+			attachTo: document.body.appendChild(document.createElement('div')),
+		});
+		await flushPromises();
+		await mounted
+			.findAllComponents(ActionButton)
+			.find((b) => b.attributes('data-testid') === 'export-vcf')
+			?.trigger('click');
+		await flushPromises();
+
+		const llamadas = invokedCommands.filter((c) => c.command === 'exportar_vcf');
+		expect(llamadas).toHaveLength(1);
+		expect(llamadas[0]?.args).toEqual({
+			ruta: '/home/ana/contactos.vcf',
+			accountId: 'a1',
+			addressBookId: '',
+		});
+	});
+
+	test('muestra un aviso propio cuando el programa devuelve la marca de que no hay contactos', async () => {
+		answerCommand('listar_cuentas', () => [
+			{ id: 'a1', nombre: 'ana@nube.ejemplo.com', necesita_reconectarse: false },
+		]);
+		answerCommand('contactos_de_la_cuenta', () => ({
+			libretas: [],
+			contactos: [emptyContact({ name: 'Ana', account_id: 'a1', url: 'store:a1:/ana.vcf' })],
+			fallos: [],
+		}));
+		answerCommand('plugin:dialog|save', () => '/home/ana/contactos.vcf');
+		answerCommand('exportar_vcf', () => {
+			throw 'export-no-contacts';
+		});
+		mounted = mount(AddressBookView, {
+			attachTo: document.body.appendChild(document.createElement('div')),
+		});
+		await flushPromises();
+		await mounted
+			.findAllComponents(ActionButton)
+			.find((b) => b.attributes('data-testid') === 'export-vcf')
+			?.trigger('click');
+		await flushPromises();
+
+		expect(mounted.text()).not.toContain('export-no-contacts');
+	});
+});

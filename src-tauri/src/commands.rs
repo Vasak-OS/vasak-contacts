@@ -29,6 +29,16 @@ const CONTACTS_RESOURCE: &str = "store.contacts";
 /// mira, y obligaría a la ventana a reconocerla por su contenido.
 pub(crate) const STORE_PERMISSION_DENIED: &str = "store-permission-denied";
 
+/// Marcas de error del export a vCard, para que la ventana las reconozca y
+/// muestre el texto en el idioma de la sesión (igual que [`STORE_PERMISSION_DENIED`],
+/// **no se traducen** acá). `EXPORT_NO_CONTACTS`: no había ninguna tarjeta válida
+/// que exportar, así que no se tocó el archivo destino —un `.vcf` vacío no es un
+/// respaldo—. `EXPORT_TOO_LARGE`: la cuenta tiene más tarjetas de las que se
+/// pueden exportar de una pasada; un respaldo parcial en silencio sería peor que
+/// un error (ver [`crate::store::read_raw_cards`]).
+pub(crate) const EXPORT_NO_CONTACTS: &str = "export-no-contacts";
+pub(crate) const EXPORT_TOO_LARGE: &str = "export-too-large";
+
 /// El servicio de permisos, en el **bus de sistema** (`vasak-permissions`).
 const PERMISSIONS_SERVICE: &str = "ar.net.vasak.os.Permissions";
 const PERMISSIONS_PATH: &str = "/ar/net/vasak/os/Permissions";
@@ -371,6 +381,129 @@ fn exportar_csv_impl(ruta: &str, csv: &str) -> Result<(), String> {
         .map_err(|e| format!("no se pudo guardar el archivo: {e}"))
 }
 
+/// Exporta a vCard las tarjetas de una cuenta en la ruta que **eligió la
+/// persona** en el diálogo del sistema. A diferencia del CSV —que la ventana
+/// arma desde el modelo de pantalla—, acá se leen las tarjetas **crudas** del
+/// almacén y se concatena su texto original: así el `.vcf` conserva las fotos,
+/// las direcciones y los cumpleaños que `Contact` descarta, sin reescribir nada.
+///
+/// `address_book_id` vacío exporta toda la cuenta; con una libreta, sólo esa
+/// (mismo criterio «cuenta/libreta» del alcance del CSV). La escritura es
+/// atómica y sigue el enlace simbólico, igual que `exportar_csv`.
+#[tauri::command]
+pub async fn exportar_vcf(
+    app: tauri::AppHandle,
+    ruta: String,
+    account_id: String,
+    address_book_id: String,
+) -> Result<(), String> {
+    use tauri_plugin_vsk_store::StoreExt;
+    let tarjetas =
+        crate::store::read_raw_cards(&app.store(), &account_id, &address_book_id).await?;
+    let vcards: Vec<String> = tarjetas.into_iter().map(|t| t.vcard).collect();
+    let vcf = ensamblar_vcf(&vcards);
+    // Nada que exportar —el almacén no tenía tarjetas, o todas eran inválidas—:
+    // no se pisa el destino con un `.vcf` vacío ni se reporta éxito. Esto va
+    // ANTES de tocar el disco, así el archivo que ya hubiera queda intacto.
+    if vcf.is_empty() {
+        return Err(EXPORT_NO_CONTACTS.to_string());
+    }
+    // Escribir en un hilo aparte, como el CSV: la escritura puede ir a un disco
+    // lento o de red.
+    tauri::async_runtime::spawn_blocking(move || exportar_vcf_impl(&ruta, &vcf))
+        .await
+        .map_err(|e| format!("no se pudo guardar el archivo: {e}"))?
+}
+
+/// El trabajo en disco de `exportar_vcf`, aparte para probarlo sin runtime async.
+/// Sin BOM: vCard es UTF-8 sin marca de orden (RFC 6350); el BOM del CSV era
+/// sólo para que Excel abriera los acentos.
+fn exportar_vcf_impl(ruta: &str, vcf: &str) -> Result<(), String> {
+    escribir_atomico(std::path::Path::new(ruta), vcf.as_bytes())
+        .map_err(|e| format!("no se pudo guardar el archivo: {e}"))
+}
+
+/// Junta los vCard crudos de varias tarjetas en el contenido de un `.vcf`.
+///
+/// Función pura: no toca el almacén ni el disco, para poder probarla sola.
+///
+/// No **reescribe** el contenido de cada tarjeta —se preserva tal cual se
+/// guardó: plegado, orden de propiedades y escapes—; sólo normaliza lo mínimo
+/// que pide el formato:
+///
+/// - finales de línea **CRLF** (RFC 6350), reemplazando los `\n`/`\r` sueltos;
+/// - sin líneas en blanco al principio ni al final del bloque, para que dos
+///   tarjetas no se peguen ni quede una separación de más;
+/// - un salto final después de la última.
+///
+/// Una entrada vacía, en blanco, o sin un `BEGIN:VCARD`/`END:VCARD` **se
+/// saltea** en vez de abortar la exportación: igual que el parseo (ver
+/// `vcard`), una tarjeta rota no debe impedir exportar las otras trescientas.
+/// Los espacios colgantes del interior **no** se recortan: en una línea plegada
+/// el último carácter antes del pliegue puede ser un espacio del valor.
+pub fn ensamblar_vcf(vcards: &[String]) -> String {
+    let mut salida = String::new();
+    for cruda in vcards {
+        if let Some(bloque) = normalizar_vcard(cruda) {
+            salida.push_str(&bloque);
+            salida.push_str("\r\n");
+        }
+    }
+    salida
+}
+
+/// Normaliza una tarjeta cruda a líneas unidas con CRLF, o `None` si está vacía
+/// o no forma tarjetas con delimitadores ordenados y balanceados.
+fn normalizar_vcard(cruda: &str) -> Option<String> {
+    // Todos los finales de línea a `\n` antes de partir, en orden CRLF → CR solo
+    // → LF: así una tarjeta estilo Mac viejo (finales `\r` solos) no queda en una
+    // sola línea que no matchearía los delimitadores. Reemplazar CRLF primero
+    // evita que un `\r\n` se convierta en dos saltos.
+    let unificada = cruda.replace("\r\n", "\n").replace('\r', "\n");
+    let lineas: Vec<&str> = unificada.split('\n').collect();
+    // Sin las líneas en blanco de los bordes: las del final pegarían la
+    // separación al salto que agrega `ensamblar_vcf`, y las del principio
+    // meterían una línea vacía entre dos tarjetas.
+    let inicio = lineas.iter().position(|l| !l.trim().is_empty())?;
+    let fin = lineas.iter().rposition(|l| !l.trim().is_empty())?;
+    let cuerpo = &lineas[inicio..=fin];
+    // Los delimitadores tienen que estar ordenados y balanceados, no sólo
+    // presentes: un `END` antes de su `BEGIN`, o un `BEGIN` sin cerrar, es un
+    // bloque mal formado que se saltea como las demás entradas inválidas.
+    if !delimitadores_balanceados(cuerpo) {
+        return None;
+    }
+    Some(cuerpo.join("\r\n"))
+}
+
+/// Dice si las líneas forman pares `BEGIN:VCARD…END:VCARD` ordenados y
+/// balanceados: cada `BEGIN` abre antes de su `END`, cada `END` cierra un
+/// `BEGIN` ya abierto, y no queda ninguno colgado. Un recurso del almacén con
+/// **varias** tarjetas pegadas (varios pares seguidos) es válido; un `END` antes
+/// de un `BEGIN`, un `BEGIN` sin su `END`, o un `BEGIN` dentro de otro sin
+/// cerrar, no. Sin ninguna tarjeta, tampoco. Sin distinguir mayúsculas, que
+/// vCard no distingue en los nombres de propiedad.
+fn delimitadores_balanceados(lineas: &[&str]) -> bool {
+    let mut dentro = false;
+    let mut tarjetas = 0usize;
+    for linea in lineas {
+        let clave = linea.trim();
+        if clave.eq_ignore_ascii_case("BEGIN:VCARD") {
+            if dentro {
+                return false; // un `BEGIN` sin cerrar el anterior
+            }
+            dentro = true;
+            tarjetas += 1;
+        } else if clave.eq_ignore_ascii_case("END:VCARD") {
+            if !dentro {
+                return false; // un `END` sin su `BEGIN`
+            }
+            dentro = false;
+        }
+    }
+    !dentro && tarjetas > 0
+}
+
 /// Escribe a un temporal en el mismo directorio y renombra, siguiendo el enlace
 /// simbólico. `rename` sólo es atómico dentro del mismo sistema de archivos, por
 /// eso el temporal va al lado del destino.
@@ -631,6 +764,170 @@ mod tests {
 
         let modo = std::fs::metadata(&ruta).unwrap().permissions().mode() & 0o777;
         assert_eq!(modo, 0o640);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn tarjeta(nombre: &str) -> String {
+        format!("BEGIN:VCARD\r\nVERSION:3.0\r\nFN:{nombre}\r\nEND:VCARD")
+    }
+
+    /// Cada tarjeta sale con CRLF aunque se haya guardado con LF, y con un
+    /// salto final tras la última.
+    #[test]
+    fn ensamblar_vcf_normaliza_a_crlf_y_cierra_con_salto() {
+        let salida = ensamblar_vcf(&["BEGIN:VCARD\nFN:Ana\nEND:VCARD".to_string()]);
+
+        assert_eq!(salida, "BEGIN:VCARD\r\nFN:Ana\r\nEND:VCARD\r\n");
+        assert!(!salida.replace("\r\n", "").contains('\n'), "sin LF sueltos");
+    }
+
+    /// Dos tarjetas quedan en líneas separadas y sin líneas en blanco de más,
+    /// aunque la primera traiga saltos de sobra al final. Concatenar sin
+    /// normalizar pegaría `END:VCARD` con `BEGIN:VCARD` o metería una vacía.
+    #[test]
+    fn ensamblar_vcf_no_pega_ni_separa_de_mas_dos_tarjetas() {
+        let a = format!("\n\n{}\r\n\r\n\n", tarjeta("Ana"));
+        let salida = ensamblar_vcf(&[a, tarjeta("Beto")]);
+
+        assert_eq!(
+            salida,
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nEND:VCARD\r\n\
+             BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Beto\r\nEND:VCARD\r\n"
+        );
+    }
+
+    /// Una entrada vacía, en blanco o sin delimitadores se saltea; las
+    /// válidas siguen saliendo. Los delimitadores no distinguen mayúsculas.
+    #[test]
+    fn ensamblar_vcf_saltea_las_entradas_invalidas() {
+        let entradas = [
+            String::new(),
+            "  \r\n \n".to_string(),
+            "FN:Sin delimitadores".to_string(),
+            "BEGIN:VCARD\r\nFN:Sin fin".to_string(),
+            "FN:Sin inicio\r\nEND:VCARD".to_string(),
+            tarjeta("Ana"),
+            "begin:vcard\nfn:Beto\nend:vcard".to_string(),
+        ];
+
+        let salida = ensamblar_vcf(&entradas);
+
+        assert_eq!(
+            salida,
+            "BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Ana\r\nEND:VCARD\r\n\
+             begin:vcard\r\nfn:Beto\r\nend:vcard\r\n"
+        );
+        assert_eq!(ensamblar_vcf(&[]), "");
+        assert_eq!(ensamblar_vcf(&[String::new(), "  ".into()]), "");
+    }
+
+    /// El interior se conserva byte a byte salvo el fin de línea: el pliegue
+    /// y los espacios colgantes no se tocan (el último carácter antes de un
+    /// pliegue puede ser un espacio del valor).
+    #[test]
+    fn ensamblar_vcf_preserva_el_interior_plegado_y_los_espacios() {
+        let cruda = "BEGIN:VCARD\nPHOTO;ENCODING=b:AAAA\n BBBB\n CCCC\nNOTE:con espacio \n y sigue\nEND:VCARD";
+
+        let salida = ensamblar_vcf(&[cruda.to_string()]);
+
+        assert_eq!(salida, format!("{}\r\n", cruda.replace('\n', "\r\n")));
+        assert!(salida.contains("NOTE:con espacio \r\n y sigue"));
+    }
+
+    /// Lo ensamblado vuelve a separarse en las mismas tarjetas y cada una se
+    /// lee con su nombre.
+    #[test]
+    fn ensamblar_vcf_ida_y_vuelta_con_el_parser() {
+        let entradas = vec![
+            tarjeta("Ana"),
+            "BEGIN:VCARD\nVERSION:3.0\nFN:Beto\nEND:VCARD\n\n".to_string(),
+            tarjeta("Carla"),
+        ];
+
+        let vcf = ensamblar_vcf(&entradas);
+        let tarjetas = crate::vcard::split_cards(&vcf);
+
+        assert_eq!(tarjetas.len(), 3);
+        let nombres: Vec<String> = tarjetas
+            .iter()
+            .map(|t| crate::vcard::contact_from(t, "u").unwrap().name)
+            .collect();
+        assert_eq!(nombres, ["Ana", "Beto", "Carla"]);
+    }
+
+    /// Una tarjeta con finales `\r` solos (Mac viejo) se conserva. Con una
+    /// normalización ingenua (`split('\n')`) queda en una sola línea, no
+    /// matchea `BEGIN:VCARD` y se pierde en silencio.
+    #[test]
+    fn ensamblar_vcf_preserva_una_tarjeta_con_cr_solo() {
+        let cruda = "BEGIN:VCARD\rFN:Ana\rEND:VCARD";
+
+        assert_eq!(
+            normalizar_vcard(cruda),
+            Some("BEGIN:VCARD\r\nFN:Ana\r\nEND:VCARD".to_string())
+        );
+        assert_eq!(
+            ensamblar_vcf(&[cruda.to_string()]),
+            "BEGIN:VCARD\r\nFN:Ana\r\nEND:VCARD\r\n"
+        );
+    }
+
+    #[test]
+    fn normalizar_vcard_mezcla_de_finales_y_bordes_en_blanco() {
+        let cruda = "\r\n\nBEGIN:VCARD\r\nFN:Ana\nEND:VCARD\r\r\n";
+        assert_eq!(
+            normalizar_vcard(cruda).as_deref(),
+            Some("BEGIN:VCARD\r\nFN:Ana\r\nEND:VCARD")
+        );
+        assert_eq!(normalizar_vcard("FN:Ana"), None);
+        assert_eq!(normalizar_vcard("  \n"), None);
+        assert_eq!(normalizar_vcard("BEGIN:VCARD\rFN:Ana"), None);
+    }
+
+    #[test]
+    fn delimitadores_balanceados_exige_orden_y_pares() {
+        let b = "BEGIN:VCARD";
+        let e = "END:VCARD";
+        assert!(delimitadores_balanceados(&[b, e]));
+        assert!(
+            delimitadores_balanceados(&[b, "FN:A", e, b, e]),
+            "multi-tarjeta"
+        );
+        assert!(delimitadores_balanceados(&["begin:vcard", "End:VCard"]));
+        assert!(!delimitadores_balanceados(&[e, b]), "END antes de BEGIN");
+        assert!(!delimitadores_balanceados(&[b]));
+        assert!(!delimitadores_balanceados(&[b, b, e, e]), "anidado");
+        assert!(!delimitadores_balanceados(&[]));
+        assert!(!delimitadores_balanceados(&["FN:Ana"]));
+    }
+
+    /// Un recurso con varias tarjetas pegadas pasa entero; un bloque con `END`
+    /// antes de `BEGIN` se saltea aunque «contenga BEGIN y END».
+    #[test]
+    fn ensamblar_vcf_multitarjeta_pasa_y_end_antes_de_begin_se_saltea() {
+        let dos = format!("{}\r\n{}", tarjeta("Ana"), tarjeta("Beto"));
+        let al_reves = "END:VCARD\r\nFN:X\r\nBEGIN:VCARD".to_string();
+
+        let salida = ensamblar_vcf(&[dos.clone(), al_reves]);
+
+        assert_eq!(salida, format!("{dos}\r\n"));
+    }
+
+    /// Exportar el `.vcf` escribe el contenido tal cual, SIN BOM (a diferencia
+    /// del CSV: vCard es UTF-8 sin marca) y sin dejar temporales al lado.
+    #[test]
+    fn exportar_vcf_escribe_sin_bom_y_sin_dejar_temporales() {
+        let dir = directorio("vcf");
+        let ruta = dir.join("contactos.vcf");
+        let vcf = "BEGIN:VCARD\r\nFN:Álvaro\r\nEND:VCARD\r\n";
+
+        exportar_vcf_impl(&ruta.to_string_lossy(), vcf).unwrap();
+
+        let bytes = std::fs::read(&ruta).unwrap();
+        assert!(!bytes.starts_with(&[0xEF, 0xBB, 0xBF]), "sin BOM");
+        assert_eq!(bytes, vcf.as_bytes());
+        let restos: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(restos.len(), 1, "sólo el .vcf, sin temporales");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -59,6 +59,7 @@ pub fn run() {
             qr::generate_vcard_qr,
             commands::own_card_address,
             commands::exportar_csv,
+            commands::exportar_vcf,
             commands::webkit::tune_webview,
         ])
         .setup(|app| {

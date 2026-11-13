@@ -267,6 +267,50 @@ where
     Ok(Some(lectura))
 }
 
+/// Las tarjetas **crudas** de una cuenta, tal como las guardó el almacén, sin
+/// convertir a [`Contact`]. Exportar a vCard necesita el texto original —fotos,
+/// direcciones, cumpleaños que el modelo de pantalla descarta—, así que no se
+/// pasa por [`contacts_from`]: se devuelve el `.vcard` entero.
+///
+/// Si `address_book_id` no está vacío, sólo las de esa libreta. El filtro se
+/// aplica acá sobre `StoredCard::address_book_id`, no en el almacén: se usa la
+/// misma llamada probada que [`read_contacts`] (`ListContactCards` con la
+/// libreta vacía = todas) y no se depende de que el servicio sepa filtrar.
+pub async fn read_raw_cards(
+    store: &StoreClient,
+    account_id: &str,
+    address_book_id: &str,
+) -> Result<Vec<StoredCard>, String> {
+    let mut tarjetas = Vec::new();
+    let mut cursor = String::new();
+    for _ in 0..MAX_PAGES {
+        let json = call(
+            store,
+            "ListContactCards",
+            &(account_id, "", cursor.as_str(), PAGE_SIZE),
+        )
+        .await?;
+        let pagina: CardPage = serde_json::from_str(&json)
+            .map_err(|e| format!("no se pudieron leer los contactos: {e}"))?;
+        tarjetas.extend(
+            pagina
+                .items
+                .into_iter()
+                .filter(|t| address_book_id.is_empty() || t.address_book_id == address_book_id),
+        );
+        match pagina.next_cursor {
+            Some(siguiente) if !siguiente.is_empty() => cursor = siguiente,
+            _ => return Ok(tarjetas),
+        }
+    }
+    // Más de `MAX_PAGES * PAGE_SIZE` tarjetas y el cursor sigue vivo: faltan
+    // páginas. A diferencia de la lectura normal (`read_store_pages`), que muestra
+    // lo leído y avisa porque es para ver en pantalla, un export es un respaldo y
+    // tiene que estar completo. Devolver un parcial como exitoso dejaría un
+    // respaldo truncado en silencio, así que es un error.
+    Err(crate::commands::EXPORT_TOO_LARGE.to_string())
+}
+
 /// La respuesta de `PutContact`: el número local del contacto que creó o editó.
 #[derive(Debug, Clone, Deserialize)]
 struct PutContactReply {
@@ -1071,6 +1115,8 @@ mod tests {
     #[derive(Clone, Default)]
     struct FakeStore {
         deny: bool,
+        /// Un almacén que nunca termina de paginar: siempre hay `next_cursor`.
+        endless: bool,
         calls: Calls,
     }
 
@@ -1094,6 +1140,9 @@ mod tests {
             self.calls.push(format!(
                 "ListContactCards {account_id} {address_book_id:?} {cursor:?} {limit}"
             ));
+            if self.endless {
+                return page_json(&[1], Some("sigue"));
+            }
             if cursor.is_empty() {
                 page_json(&[1], Some("2"))
             } else {
@@ -1234,6 +1283,63 @@ mod tests {
                 format!("ListContactCards nube \"\" \"2\" {PAGE_SIZE}"),
             ]
         );
+    }
+
+    /// Exportar necesita el texto crudo de cada tarjeta, de todas las páginas.
+    #[tokio::test]
+    async fn las_tarjetas_crudas_se_leen_de_todas_las_paginas_con_su_vcard() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let _servicio = bus
+            .serve(tauri_plugin_vsk_store::client::PATH, FakeStore::default())
+            .await;
+
+        let tarjetas = read_raw_cards(&test_bus::client(true), "nube", "")
+            .await
+            .unwrap();
+
+        assert_eq!(tarjetas.len(), 2);
+        assert_eq!(tarjetas[0].vcard, named(1));
+        assert_eq!(tarjetas[1].vcard, named(2));
+    }
+
+    /// Con un id de libreta sólo quedan las de esa libreta; con otro que no
+    /// existe, ninguna (el filtro es de Rust, no del servicio).
+    #[tokio::test]
+    async fn las_tarjetas_crudas_se_filtran_por_libreta() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let _servicio = bus
+            .serve(tauri_plugin_vsk_store::client::PATH, FakeStore::default())
+            .await;
+        let cliente = test_bus::client(true);
+
+        let de_la_1 = read_raw_cards(&cliente, "nube", "1").await.unwrap();
+        let de_la_9 = read_raw_cards(&cliente, "nube", "9").await.unwrap();
+
+        assert_eq!(de_la_1.len(), 2);
+        assert!(de_la_9.is_empty());
+    }
+
+    /// Un respaldo truncado en silencio es peor que ninguno: si al tope de
+    /// páginas el cursor sigue vivo, es un error y no una lista parcial.
+    #[tokio::test]
+    async fn exportar_con_paginacion_sin_fin_es_un_error_y_no_un_parcial() {
+        let _turno = test_bus::exclusive();
+        let bus = PrivateBus::start();
+        let store = FakeStore {
+            endless: true,
+            ..Default::default()
+        };
+        let calls = store.calls.clone();
+        let _servicio = bus.serve(tauri_plugin_vsk_store::client::PATH, store).await;
+
+        let err = read_raw_cards(&test_bus::client(true), "nube", "")
+            .await
+            .unwrap_err();
+
+        assert_eq!(err, crate::commands::EXPORT_TOO_LARGE);
+        assert_eq!(calls.taken().len(), MAX_PAGES);
     }
 
     /// Un `AccessDenied` de verdad, por el bus y por el plugin, llega a la

@@ -220,6 +220,49 @@ async function exportarCsv() {
 }
 
 /**
+ * Exporta a vCard (`exportar_vcf`). A diferencia del CSV no sale «lo que se ve»:
+ * el programa lee las tarjetas crudas del almacén, por cuenta. Se exporta cada
+ * cuenta que tiene contactos a la vista (casi siempre una), con su diálogo, y
+ * con `addressBookId` vacío = toda la cuenta.
+ */
+async function exportarVcf() {
+	if (exporting.value || visibles.value.length === 0) {
+		return;
+	}
+	exporting.value = true;
+	actionNotice.value = '';
+	try {
+		const accountIds = [...new Set(visibles.value.map((c) => c.account_id))];
+		for (const accountId of accountIds) {
+			// Con varias cuentas, cada diálogo propone un nombre propio para que no
+			// se pisen entre sí; el nombre se limpia de lo que un archivo no admite.
+			const nombre = cuentas.value.find((cuenta) => cuenta.id === accountId)?.nombre ?? accountId;
+			const seguro = nombre.replace(/[^\p{L}\p{N}._@-]+/gu, '_').slice(0, 60);
+			const ruta = await save({
+				title: accountIds.length > 1 ? nombre : undefined,
+				defaultPath: accountIds.length > 1 ? `contactos-${seguro}.vcf` : 'contactos.vcf',
+				filters: [{ name: 'vCard', extensions: ['vcf'] }],
+			});
+			if (!ruta) {
+				return;
+			}
+			await invoke('exportar_vcf', { ruta, accountId, addressBookId: '' });
+		}
+	} catch (e) {
+		// Marcas estables del programa: el texto lo pone la ventana, en el idioma de la sesión.
+		const marca = String(e);
+		actionNotice.value =
+			marca === 'export-no-contacts'
+				? t('exportar.sinContactos')
+				: marca === 'export-too-large'
+					? t('exportar.demasiado')
+					: interpolar(t('exportar.error'), marca);
+	} finally {
+		exporting.value = false;
+	}
+}
+
+/**
  * El botón de «volver a pedir el permiso»: mientras pide se desactiva —no es
  * instantáneo y dos clics seguidos chocan con el techo de uno por minuto— y, si
  * no se pudo ni pedir, deja debajo el motivo traducido (el techo, o un recurso
@@ -342,6 +385,17 @@ onMounted(cargar);
         :title="t('exportar.csv')"
         v-bind="{ 'data-testid': 'export-csv' }"
         @click="exportarCsv()" />
+      <!-- Exportar a vCard la cuenta de lo que se está viendo. -->
+      <ActionButton
+        v-if="!sinPermiso && visibles.length > 0"
+        variant="ghost"
+        label=""
+        icon="document-save-as"
+        :loading="exporting"
+        :icon-alt="t('exportar.vcf')"
+        :title="t('exportar.vcf')"
+        v-bind="{ 'data-testid': 'export-vcf' }"
+        @click="exportarVcf()" />
       <!-- Mi código QR: el de la tarjeta propia. Sólo si hay agenda que mirar. -->
       <ActionButton
         v-if="!sinPermiso && contactos.length > 0"
